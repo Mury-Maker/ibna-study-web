@@ -1,0 +1,17 @@
+/* Reset total untuk menghilangkan margin 8px bawaan browser */
+* {
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* Pastikan elemen root memenuhi seluruh layar tanpa celah */
+html, body, #root {
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow-x: hidden;
+  /* Paksa background sesuai tema dark mode lo agar tidak ada flash putih */
+  background-color: rgb(2, 6, 23) !important; 
+}
