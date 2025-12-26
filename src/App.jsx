@@ -3,6 +3,13 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Login from './pages/Auth/Login';
 import DashboardGuru from './pages/Guru/Dashboard';
 import ProfileGuru from './pages/Guru/Profile';
+import JadwalGuru from './pages/Guru/Jadwal';
+import KelasDetail from './pages/Guru/Kelas/KelasDetail';
+import RekapNilai from './pages/Guru/RekapNilai';
+import TanyaPR from './pages/Guru/TanyaPR';
+import TambahanBelajar from './pages/Guru/TambahanBelajar';
+import EditProfileGuru from './pages/Guru/form/EditProfileGuru';
+import Notifikasi from './pages/Guru/Notifikasi';
 import { ThemeProvider } from './context/ThemeContext'; // Import ThemeProvider lo
 
 function App() {
@@ -15,12 +22,13 @@ function App() {
           {/* Route Guru - Pastikan path sesuai dengan menu di Sidebar */}
           <Route path="/Guru/Dashboard" element={<DashboardGuru />} />
           <Route path="/Guru/Profile" element={<ProfileGuru />} />
-          <Route path="/Guru/Jadwal" element={<div>Halaman Jadwal</div>} />
-          <Route path="/Guru/Kelas" element={<div>Halaman Kelas</div>} />
-          <Route path="/Guru/Rekap-Nilai" element={<div>Halaman Rekap Nilai</div>} />
-          <Route path="/Guru/Tanya-PR" element={<div>Halaman Tanya PR</div>} />
-          <Route path="/Guru/Tambahan-Belajar" element={<div>Halaman Tambahan Belajar</div>} />
-          
+          <Route path="/Guru/Jadwal" element={<JadwalGuru/>} />
+          <Route path="/Guru/Kelas" element={<KelasDetail />} />
+          <Route path="/Guru/Rekap-Nilai" element={<RekapNilai/>} />
+          <Route path="/Guru/Tanya-PR" element={<TanyaPR/>} />
+          <Route path="/Guru/Tambahan-Belajar" element={<TambahanBelajar/>} />
+          <Route path="/Guru/Profile/Edit" element={<EditProfileGuru />} />
+          <Route path="/Guru/Notifikasi" element={<Notifikasi />} />
           {/* Redirect jika halaman tidak ditemukan */}
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

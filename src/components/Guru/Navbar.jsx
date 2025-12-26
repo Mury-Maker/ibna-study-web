@@ -1,12 +1,12 @@
 import React from 'react';
 import { Bell, Menu, Sun, Moon } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
+import { useNavigate } from 'react-router-dom'; // Import useNavigate
 
 const Navbar = ({ onMenuClick, showHamburger }) => {
-  // Ambil data colors di sini agar bisa dipakai di bawah
   const { isDarkMode, toggleTheme, colors } = useTheme();
+  const navigate = useNavigate(); // Inisialisasi navigate
 
-  // Definisikan style di DALAM fungsi
   const styles = {
     navbar: { 
       height: '64px', 
@@ -16,7 +16,7 @@ const Navbar = ({ onMenuClick, showHamburger }) => {
       position: 'sticky', 
       top: 0, 
       zIndex: 10,
-      backgroundColor: colors.navbarBg, // Sekarang variabel colors terbaca!
+      backgroundColor: colors.navbarBg, 
       borderBottom: `1px solid ${colors.border}`,
       margin: 0
     },
@@ -31,7 +31,8 @@ const Navbar = ({ onMenuClick, showHamburger }) => {
       alignItems: 'center', 
       padding: '8px', 
       borderRadius: '50%', 
-      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)' 
+      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+      transition: '0.3s ease'
     },
     badge: { 
       position: 'absolute', 
@@ -55,10 +56,17 @@ const Navbar = ({ onMenuClick, showHamburger }) => {
         ) : <div />}
         
         <div style={styles.rightActions}>
-          <button style={styles.themeBtn} onClick={toggleTheme}>
+          {/* Tombol Ganti Tema */}
+          <button style={styles.themeBtn} onClick={toggleTheme} title="Ganti Tema">
             {isDarkMode ? <Sun size={20} color={colors.secondary} /> : <Moon size={20} color={colors.textMuted} />}
           </button>
-          <button style={styles.btn}>
+
+          {/* Tombol Notifikasi - Sekarang menuju ke halaman Notifikasi */}
+          <button 
+            style={styles.btn} 
+            onClick={() => navigate('/Guru/Notifikasi')} // Arahkan ke route notifikasi
+            title="Lihat Notifikasi"
+          >
             <Bell size={22} color={colors.textPrimary} />
             <div style={styles.badge} />
           </button>
