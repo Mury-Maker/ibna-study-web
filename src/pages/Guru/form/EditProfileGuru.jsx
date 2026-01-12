@@ -6,10 +6,10 @@ import { ref, onValue, update } from 'firebase/database';
 import { onAuthStateChanged } from 'firebase/auth';
 import { supabase } from '../../../api/supabase'; 
 import { useTheme } from '../../../context/ThemeContext';
-import { ArrowLeft, Camera, Save, Loader2 } from 'lucide-react';
+import { ArrowLeft, Camera, Save, Loader2, User as UserIcon } from 'lucide-react';
 
 const EditProfileGuru = () => {
-  const { colors } = useTheme();
+  const { colors, isDarkMode } = useTheme();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
@@ -49,11 +49,7 @@ const EditProfileGuru = () => {
 
   const handleSave = async (e) => {
     e.preventDefault();
-
-    // 1. TAMBAHKAN KONFIRMASI DI SINI
     const yakin = window.confirm("Apakah Anda yakin ingin menyimpan perubahan profil ini?");
-    
-    // Jika user klik 'Cancel', batalkan proses
     if (!yakin) return;
 
     setLoading(true);
@@ -61,7 +57,6 @@ const EditProfileGuru = () => {
     let fotoUrl = formData.foto;
 
     try {
-      // 2. Proses upload gambar ke Supabase (jika ada)
       if (imageFile) {
         const fileExt = imageFile.name.split('.').pop();
         const fileName = `${user.uid}-${Date.now()}.${fileExt}`;
@@ -74,14 +69,12 @@ const EditProfileGuru = () => {
         fotoUrl = publicUrl;
       }
 
-      // 3. Update data teks ke Firebase Realtime Database
       await update(ref(db, `Users/${user.uid}`), {
         nama: formData.nama,
         noHp: formData.noHp,
         foto: fotoUrl
       });
 
-      // 4. Notifikasi sukses setelah berhasil disimpan
       alert('✅ Profil Berhasil Diperbarui!');
       navigate('/Guru/Profile');
     } catch (error) {
@@ -92,47 +85,173 @@ const EditProfileGuru = () => {
   };
 
   const styles = {
-    container: { backgroundColor: colors.cardBg, border: `1px solid ${colors.border}`, borderRadius: '12px', padding: '30px', maxWidth: '600px', margin: '0 auto' },
-    input: { width: '100%', padding: '12px', borderRadius: '8px', border: `1px solid ${colors.border}`, backgroundColor: colors.contentBg, color: colors.textPrimary, marginTop: '8px', outline: 'none' },
-    label: { color: colors.textMuted, fontSize: '14px', fontWeight: '500' },
-    previewCircle: { width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: `3px solid ${colors.secondary}`, backgroundColor: colors.sidebarBg },
-    saveBtn: { width: '100%', padding: '12px', backgroundColor: colors.primary, color: '#fff', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '600', display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '10px' }
+    container: { padding: '20px', width: '100%', boxSizing: 'border-box', animation: 'fadeIn 0.3s ease' },
+    card: { 
+      backgroundColor: colors.cardBg, 
+      border: `1px solid ${colors.border}`, 
+      borderRadius: '16px', 
+      padding: '40px', 
+      width: '100%', 
+      boxSizing: 'border-box' 
+    },
+    formGrid: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+      gap: '30px',
+      marginTop: '20px'
+    },
+    avatarUploadWrapper: {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '20px',
+      borderRight: `1px solid ${colors.border}`
+    },
+    previewBox: { 
+      width: '180px', 
+      height: '180px', 
+      borderRadius: '20px', 
+      objectFit: 'cover', 
+      border: `4px solid ${colors.border}`, 
+      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#f8fafc',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      position: 'relative',
+      overflow: 'hidden',
+      boxShadow: '0 10px 20px rgba(0,0,0,0.05)'
+    },
+    cameraLabel: {
+      position: 'absolute',
+      bottom: '10px',
+      right: '10px',
+      backgroundColor: colors.primary,
+      padding: '10px',
+      borderRadius: '12px',
+      cursor: 'pointer',
+      display: 'flex',
+      color: '#fff',
+      boxShadow: '0 4px 10px rgba(0,0,0,0.2)'
+    },
+    inputGroup: { marginBottom: '20px' },
+    label: { 
+      display: 'block', 
+      fontSize: '11px', 
+      fontWeight: '800', 
+      color: colors.textMuted, 
+      letterSpacing: '1px', 
+      marginBottom: '8px' 
+    },
+    input: { 
+      width: '100%', 
+      padding: '14px', 
+      borderRadius: '10px', 
+      border: `1px solid ${colors.border}`, 
+      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : '#fff', 
+      color: colors.textPrimary, 
+      outline: 'none', 
+      fontSize: '15px', 
+      boxSizing: 'border-box',
+      transition: '0.3s'
+    },
+    saveBtn: { 
+      width: '100%', 
+      padding: '16px', 
+      backgroundColor: colors.primary, 
+      color: '#fff', 
+      borderRadius: '12px', 
+      border: 'none', 
+      cursor: 'pointer', 
+      fontWeight: '700', 
+      display: 'flex', 
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      gap: '12px', 
+      fontSize: '16px',
+      marginTop: '20px'
+    }
   };
 
-  if (fetching) return <GuruLayout title="Edit Profile">Loading...</GuruLayout>;
+  if (fetching) return (
+    <GuruLayout title="Edit Profile">
+      <div style={{ padding: '40px', color: colors.textPrimary }}>
+        <Loader2 className="animate-spin" /> Memuat Data...
+      </div>
+    </GuruLayout>
+  );
 
   return (
-    <GuruLayout title="Edit Profile">
-      <button onClick={() => navigate('/Guru/Profile')} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', color: colors.textMuted, cursor: 'pointer', marginBottom: '20px' }}>
-        <ArrowLeft size={18} /> Kembali
-      </button>
-
+    <GuruLayout title="Pengaturan Profil">
       <div style={styles.container}>
-        <form onSubmit={handleSave}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '30px' }}>
-            <div style={{ position: 'relative' }}>
-              {previewUrl ? <img src={previewUrl} alt="Preview" style={styles.previewCircle} /> : <div style={{ ...styles.previewCircle, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Camera size={40} color={colors.textMuted} /></div>}
-              <label htmlFor="upload-foto" style={{ position: 'absolute', bottom: '5px', right: '5px', backgroundColor: colors.secondary, padding: '8px', borderRadius: '50%', cursor: 'pointer', display: 'flex' }}><Camera size={16} color="#fff" /></label>
-              <input id="upload-foto" type="file" accept="image/*" hidden onChange={handleImageChange} />
+        <button onClick={() => navigate('/Guru/Profile')} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', color: colors.primary, cursor: 'pointer', marginBottom: '20px', fontWeight: '700', fontSize: '14px' }}>
+          <ArrowLeft size={20} /> Kembali ke Profil
+        </button>
+
+        <div style={styles.card}>
+          <form onSubmit={handleSave}>
+            <div style={styles.formGrid} className="edit-profile-grid">
+              
+              {/* Bagian Kiri: Upload Foto */}
+              <div style={styles.avatarUploadWrapper} className="upload-section">
+                <div style={styles.previewBox}>
+                  {previewUrl ? (
+                    <img src={previewUrl} alt="Preview" style={{width:'100%', height:'100%', objectFit:'cover'}} />
+                  ) : (
+                    <UserIcon size={80} color={colors.textMuted} />
+                  )}
+                  <label htmlFor="upload-foto" style={styles.cameraLabel}>
+                    <Camera size={20} />
+                  </label>
+                  <input id="upload-foto" type="file" accept="image/*" hidden onChange={handleImageChange} />
+                </div>
+                <p style={{fontSize: '12px', color: colors.textMuted, marginTop: '15px', textAlign: 'center'}}>
+                  Klik ikon kamera untuk <br/> mengganti foto profil
+                </p>
+              </div>
+
+              {/* Bagian Kanan: Input Teks */}
+              <div style={{display: 'flex', flexDirection: 'column', justifyContent: 'center'}}>
+                <div style={styles.inputGroup}>
+                  <label style={styles.label}>NAMA LENGKAP</label>
+                  <input 
+                    style={styles.input} 
+                    value={formData.nama} 
+                    onChange={(e) => setFormData({...formData, nama: e.target.value})} 
+                    placeholder="Masukkan nama lengkap Anda"
+                    required 
+                  />
+                </div>
+
+                <div style={styles.inputGroup}>
+                  <label style={styles.label}>NOMOR WHATSAPP</label>
+                  <input 
+                    style={styles.input} 
+                    value={formData.noHp} 
+                    onChange={(e) => setFormData({...formData, noHp: e.target.value})} 
+                    placeholder="Contoh: 081234567890"
+                    required 
+                  />
+                </div>
+
+                <button type="submit" style={styles.saveBtn} disabled={loading}>
+                  {loading ? <Loader2 className="animate-spin" /> : <Save size={20} />}
+                  {loading ? 'Sedang Menyimpan...' : 'Simpan Perubahan Profil'}
+                </button>
+              </div>
+
             </div>
-          </div>
-
-          <div style={{ marginBottom: '20px' }}>
-            <label style={styles.label}>Nama Lengkap</label>
-            <input style={styles.input} value={formData.nama} onChange={(e) => setFormData({...formData, nama: e.target.value})} required />
-          </div>
-
-          <div style={{ marginBottom: '25px' }}>
-            <label style={styles.label}>Nomor WhatsApp</label>
-            <input style={styles.input} value={formData.noHp} onChange={(e) => setFormData({...formData, noHp: e.target.value})} required />
-          </div>
-
-          <button type="submit" style={styles.saveBtn} disabled={loading}>
-            {loading ? <Loader2 className="animate-spin" /> : <Save size={20} />}
-            {loading ? 'Menyimpan...' : 'Simpan Perubahan'}
-          </button>
-        </form>
+          </form>
+        </div>
       </div>
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .edit-profile-grid input:focus { border-color: ${colors.primary}; box-shadow: 0 0 0 4px ${colors.primary}15; }
+        @media (max-width: 768px) {
+          .edit-profile-grid { grid-template-columns: 1fr !important; }
+          .upload-section { border-right: none !important; border-bottom: 1px solid ${colors.border}; padding-bottom: 30px !important; }
+        }
+      `}</style>
     </GuruLayout>
   );
 };
