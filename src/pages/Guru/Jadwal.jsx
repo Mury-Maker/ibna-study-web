@@ -1,117 +1,168 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import GuruLayout from '../../layouts/GuruLayout';
 import { useTheme } from '../../context/ThemeContext';
-import { Clock, CalendarDays, ChevronRight, AlertCircle } from 'lucide-react';
+import { Clock, ChevronRight, AlertCircle, Loader2, CalendarDays, Calendar as CalendarIcon, Filter } from 'lucide-react';
+import { db, auth } from '../../api/firebase'; 
+import { ref, onValue, query, orderByChild, equalTo, get } from "firebase/database";
+import { onAuthStateChanged } from "firebase/auth";
 
-const JadwalGuru = () => {
+const Jadwal = () => {
   const { colors, isDarkMode } = useTheme();
+  const [dataJadwal, setDataJadwal] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  
+  // State Filter
+  const [hariFilter, setHariFilter] = useState("Semua");
+  const [bulanFilter, setBulanFilter] = useState(new Date().getMonth() + 1);
 
-  const dataJadwal = [
-    { hari: 'Senin', kelas: 'Kelas 7A', jam: '08:00 - 09:30' },
-    { hari: 'Senin', kelas: 'Kelas 8C', jam: '10:00 - 11:30' },
-    { hari: 'Selasa', kelas: 'Kelas 9B', jam: '08:00 - 09:30' },
-    { hari: 'Selasa', kelas: 'Kelas 10-IPA', jam: '10:00 - 11:30' },
-    { hari: 'Rabu', kelas: 'Kelas 7A', jam: '13:00 - 14:30' },
-    { hari: 'Kamis', kelas: 'Kelas 10-IPA', jam: '10:00 - 11:30' },
+  const listHari = ["Semua", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"];
+  const listBulan = [
+    { id: 1, nama: "Januari" }, { id: 2, nama: "Februari" }, { id: 3, nama: "Maret" },
+    { id: 4, nama: "April" }, { id: 5, nama: "Mei" }, { id: 6, nama: "Juni" },
+    { id: 7, nama: "Juli" }, { id: 8, nama: "Agustus" }, { id: 9, nama: "September" },
+    { id: 10, nama: "Oktober" }, { id: 11, nama: "November" }, { id: 12, nama: "Desember" }
   ];
 
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        try {
+          // 1. Ambil referensi Kelas untuk mendapatkan detail nama_kelas & jenjang
+          const kelasRef = ref(db, 'Kelas');
+          const kelasSnapshot = await get(kelasRef);
+          const dataKelas = kelasSnapshot.val() || {};
+
+          // 2. Ambil referensi Mapel untuk mendapatkan nama mata pelajaran
+          const mapelRef = ref(db, 'Mapel');
+          const mapelSnapshot = await get(mapelRef);
+          const dataMapel = mapelSnapshot.val() || {};
+
+          // 3. Ambil Jadwal berdasarkan teacherId
+          const jadwalRef = query(ref(db, 'Jadwal'), orderByChild('teacherId'), equalTo(user.uid));
+          
+          onValue(jadwalRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+              const list = Object.keys(data).map(key => {
+                const item = data[key];
+                const detailKelas = dataKelas[item.classId] || {};
+                const detailMapel = dataMapel[item.subjectId] || {};
+                
+                return {
+                  id: key,
+                  ...item,
+                  nama_kelas: detailKelas.nama_kelas || "Tanpa Kelas",
+                  jenjang: detailKelas.jenjang || "SMA",
+                  subjectName: detailMapel.nama || item.subjectId || "Mata Pelajaran"
+                };
+              });
+              setDataJadwal(list);
+            } else {
+              setDataJadwal([]);
+            }
+            setLoading(false);
+          });
+        } catch (err) {
+          setError("Gagal sinkronisasi database.");
+          setLoading(false);
+        }
+      } else {
+        setError("Sesi berakhir, silakan login kembali.");
+        setLoading(false);
+      }
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
+  const filteredJadwal = dataJadwal.filter(item => 
+    hariFilter === "Semua" || item.hari === hariFilter
+  );
+
+  const hariTampil = [...new Set(filteredJadwal.map(item => item.hari))];
+
   const styles = {
-    gridContainer: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
-      gap: '25px',
-      width: '100%'
+    container: { padding: '20px', animation: 'fadeIn 0.3s ease', width: '100%', boxSizing: 'border-box' },
+    filterRow: { display: 'flex', gap: '15px', marginBottom: '25px', flexWrap: 'wrap' },
+    selectGroup: { 
+      display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: colors.cardBg, 
+      border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '10px 15px', flex: 1, minWidth: '200px' 
     },
-    dayTitle: {
-      fontSize: '18px',
-      fontWeight: '800',
-      color: isDarkMode ? '#60A5FA' : colors.primary,
-      display: 'flex',
-      alignItems: 'center',
-      gap: '10px',
-      marginBottom: '15px',
-      paddingBottom: '8px',
-      borderBottom: `2px solid ${colors.border}`
+    dropdown: { 
+      background: 'none', border: 'none', outline: 'none', color: colors.textPrimary, 
+      width: '100%', cursor: 'pointer', fontWeight: '600', fontSize: '14px' 
     },
-    jadwalCard: {
-      backgroundColor: colors.cardBg,
-      padding: '18px',
-      borderRadius: '12px',
-      border: `1px solid ${colors.border}`,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: '12px',
+    dayTitle: { 
+      fontSize: '16px', fontWeight: '800', color: isDarkMode ? '#60A5FA' : colors.primary, 
+      display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px', 
+      borderBottom: `2px solid ${colors.border}`, paddingBottom: '8px' 
     },
-    // Note ditaruh di atas agar langsung terlihat
-    noteUjianAtas: {
-      marginBottom: '25px',
-      padding: '12px 18px',
-      borderRadius: '10px',
-      backgroundColor: isDarkMode ? 'rgba(239, 68, 68, 0.1)' : '#FEF2F2',
-      border: `1px solid ${isDarkMode ? '#F87171' : '#FCA5A5'}`,
-      color: isDarkMode ? '#FCA5A5' : '#B91C1C',
-      fontSize: '13px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '10px'
+    jadwalCard: { 
+      backgroundColor: colors.cardBg, padding: '18px 20px', borderRadius: '16px', 
+      border: `1px solid ${colors.border}`, marginBottom: '12px', display: 'flex', 
+      justifyContent: 'space-between', alignItems: 'center' 
     }
   };
 
-  const hariUnik = [...new Set(dataJadwal.map(item => item.hari))];
-
   return (
     <GuruLayout title="Jadwal Mengajar">
-      
-      {/* 1. Note Ujian (Paling Atas) */}
-      <div style={styles.noteUjianAtas}>
-        <AlertCircle size={18} />
-        <span>
-          <strong>Ujian Bulanan:</strong> Dilaksanakan setiap tanggal 25 s/d 30. Harap siapkan soal tepat waktu.
-        </span>
-      </div>
-
-      {/* 2. Banner Info */}
-      <div style={{ ...styles.jadwalCard, borderLeft: `5px solid ${colors.secondary}`, marginBottom: '30px' }}>
-        <div>
-          <div style={{ fontWeight: '700', fontSize: '15px' }}>Semester Ganjil 2025</div>
-          <div style={{ fontSize: '13px', color: colors.textMuted }}>Sistem Paket Ujian Bulanan</div>
-        </div>
-        <CalendarDays size={24} color={colors.secondary} />
-      </div>
-
-      {/* 3. Grid Jadwal */}
-      <div className="schedule-grid" style={styles.gridContainer}>
-        {hariUnik.map((hari) => (
-          <div key={hari} style={{ marginBottom: '10px' }}>
-            <div style={styles.dayTitle}>
-              <div style={{ width: '4px', height: '20px', backgroundColor: colors.secondary, borderRadius: '2px' }} />
-              {hari}
+      <div style={styles.container}>
+        {!loading && !error && (
+          <div style={styles.filterRow}>
+            <div style={styles.selectGroup}>
+              <Filter size={18} color={colors.primary} />
+              <select style={styles.dropdown} value={hariFilter} onChange={(e) => setHariFilter(e.target.value)}>
+                {listHari.map(h => <option key={h} value={h} style={{background: colors.cardBg}}>{h}</option>)}
+              </select>
             </div>
-
-            {dataJadwal.filter(j => j.hari === hari).map((item, idx) => (
-              <div key={idx} style={styles.jadwalCard}>
-                <div>
-                  <div style={{ fontWeight: '800', fontSize: '16px' }}>{item.kelas}</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginTop: '5px', color: colors.textMuted }}>
-                    <Clock size={14} color={isDarkMode ? '#60A5FA' : colors.primary} />
-                    {item.jam}
-                  </div>
-                </div>
-                <ChevronRight size={18} color={colors.border} />
-              </div>
-            ))}
+            <div style={styles.selectGroup}>
+              <CalendarIcon size={18} color={colors.primary} />
+              <select style={styles.dropdown} value={bulanFilter} onChange={(e) => setBulanFilter(e.target.value)}>
+                {listBulan.map(b => <option key={b.id} value={b.id} style={{background: colors.cardBg}}>{b.nama}</option>)}
+              </select>
+            </div>
           </div>
-        ))}
-      </div>
+        )}
 
-      <style>{`
-        @media (max-width: 768px) {
-          .schedule-grid { grid-template-columns: 1fr !important; }
-        }
-      `}</style>
+        {loading ? (
+          <div style={{textAlign:'center', padding:'100px'}}><Loader2 className="animate-spin" size={40} color={colors.primary} /></div>
+        ) : error ? (
+          <div style={{ textAlign: 'center', color: '#E53E3E', padding: '50px' }}>
+             <AlertCircle size={40} style={{ margin: '0 auto 10px' }} />
+             <p>{error}</p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '25px' }}>
+            {hariTampil.length > 0 ? hariTampil.map((hari) => (
+              <div key={hari}>
+                <div style={styles.dayTitle}>
+                  <div style={{ width: '4px', height: '18px', backgroundColor: colors.secondary, borderRadius: '2px' }} />
+                  {hari}
+                </div>
+                {filteredJadwal.filter(j => j.hari === hari).map((item) => (
+                  <div key={item.id} style={styles.jadwalCard}>
+                    <div>
+                      <div style={{ fontWeight: '800', fontSize: '15px', color: colors.textPrimary }}>{item.nama_kelas}</div>
+                      <div style={{ fontSize: '12px', color: colors.textMuted, marginTop: '2px' }}>{item.jenjang} • {item.subjectName}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', marginTop: '8px', color: colors.primary, fontWeight: '700' }}>
+                        <Clock size={14} /> {item.jamMulai} - {item.jamSelesai}
+                      </div>
+                    </div>
+                    <ChevronRight size={18} color={colors.border} />
+                  </div>
+                ))}
+              </div>
+            )) : (
+              <div style={{ textAlign: 'center', gridColumn: '1/-1', padding: '50px', color: colors.textMuted }}>
+                <CalendarDays size={48} style={{ opacity: 0.2, marginBottom: '10px' }} />
+                <p>Tidak ada jadwal untuk kriteria tersebut.</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </GuruLayout>
   );
 };
 
-export default JadwalGuru;
+export default Jadwal;
