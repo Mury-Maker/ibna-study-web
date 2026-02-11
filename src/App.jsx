@@ -12,6 +12,13 @@ import TanyaPR from './pages/Guru/TanyaPR/index';
 import TambahanBelajar from './pages/Guru/TambahanBelajar/index';
 import EditProfileGuru from './pages/Guru/form/EditProfileGuru';
 import Notifikasi from './pages/Guru/Notifikasi';
+
+import DashboardAdmin from './pages/Admin/Dashboard';
+import ProfileAdmin from './pages/Admin/Profile';
+import EditProfileAdmin from './pages/Admin/form/EditProfileAdmin';
+import AdminKelas from './pages/Admin/Kelas';
+import AdminPaketLes from './pages/Admin/PaketLes';
+import AdminJadwal from './pages/Admin/Jadwal';
 import NotFound from './pages/NotFound';
 import { ThemeProvider } from './context/ThemeContext'; // Import ThemeProvider lo
 
@@ -35,6 +42,13 @@ function App() {
           <Route path="/Guru/Tambahan-Belajar" element={<TambahanBelajar/>} />
           <Route path="/Guru/Profile/Edit" element={<EditProfileGuru />} />
           <Route path="/Guru/Notifikasi" element={<Notifikasi />} />
+
+          <Route path="/Admin/Dashboard" element={<DashboardAdmin />} />
+          <Route path="/Admin/Profile" element={<ProfileAdmin />} />
+          <Route path="/Admin/Profile/Edit" element={<EditProfileAdmin />} />
+          <Route path="/Admin/Kelas" element={<AdminKelas />} />
+          <Route path="/Admin/PaketLes" element={<AdminPaketLes />} />
+          <Route path="/Admin/Jadwal" element={<AdminJadwal />} />
           {/* Redirect jika halaman tidak ditemukan */}
           <Route path="*" element={<NotFound />} />
         </Routes>

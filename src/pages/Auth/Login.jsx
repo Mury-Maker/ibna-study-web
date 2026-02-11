@@ -28,7 +28,7 @@ const Login = () => {
       
       if (snapshot.exists()) {
         const role = snapshot.val().role;
-        if (role === "Admin") navigate('/admin/dashboard');
+        if (role === "Admin") navigate('/Admin/dashboard');
         else if (role === "Guru") navigate('/Guru/Dashboard');
       } else { 
         setError("User tidak ditemukan di database!"); 
