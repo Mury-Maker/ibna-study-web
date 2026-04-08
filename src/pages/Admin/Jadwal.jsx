@@ -14,7 +14,6 @@ const AdminJadwal = () => {
   const [daftarKelas, setDaftarKelas] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editId, setEditId] = useState(null);
-  
   const [formData, setFormData] = useState({
     kelasId: '',
     hari: '',

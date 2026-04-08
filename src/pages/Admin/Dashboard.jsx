@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { db } from '../../api/firebase';
+import { ref, onValue } from 'firebase/database';
 import AdminLayout from '../../layouts/AdminLayout';
 import { useTheme } from '../../context/ThemeContext';
 import { 
@@ -15,6 +17,66 @@ const DashboardAdmin = () => {
   const { colors, isDarkMode } = useTheme();
   const navigate = useNavigate();
 
+  // --- STATE UNTUK DATA REALTIME ---
+  const [totalUsers, setTotalUsers] = useState(0);
+  const [usersToday, setUsersToday] = useState(0);
+  const [pendaftarCount, setPendaftarCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  const [dataUserBaru, setDataUserBaru] = useState([]);
+
+  useEffect(() => {
+    const userRef = ref(db, 'Users');
+    
+    const d = new Date();
+    const todayStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+
+    const unsubscribe = onValue(userRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const list = Object.values(data);
+        
+        // 1. Hitung Metrics Sederhana
+        setTotalUsers(list.length);
+        const todayCount = list.filter(user => user.tanggal_daftar === todayStr).length;
+        setUsersToday(todayCount);
+        setPendaftarCount(list.length); 
+
+        // 2. LOGIKA PROSES DATA GRAFIK (7 Hari Terakhir)
+        const countsByDate = {};
+        
+        // Buat template 7 hari terakhir agar grafik tidak kosong meskipun 0 pendaftar
+        for (let i = 6; i >= 0; i--) {
+          const date = new Date();
+          date.setDate(date.getDate() - i);
+          // Format DD/MM sesuai dengan format di database (ambil depannya saja)
+          const labelDate = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+          const fullDate = `${labelDate}/${date.getFullYear()}`; // DD/MM/YYYY
+          
+          countsByDate[fullDate] = {
+            name: labelDate, // Untuk label di Chart (DD/MM)
+            users: 0
+          };
+        }
+
+        // Isi data pendaftar asli ke dalam template
+        list.forEach(user => {
+          if (user.tanggal_daftar && countsByDate[user.tanggal_daftar]) {
+            countsByDate[user.tanggal_daftar].users += 1;
+          }
+        });
+
+        // Konversi Object ke Array untuk Recharts
+        const finalChartData = Object.values(countsByDate);
+        setDataUserBaru(finalChartData);
+
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe(); // Cleanup listener
+  }, []);
+
   // DATA DUMMY UNTUK GRAFIK KEUANGAN & USER
   const dataPendapatan = [
     { name: 'Jan', daftar: 4000, bulanan: 2400 },
@@ -22,11 +84,6 @@ const DashboardAdmin = () => {
     { name: 'Mar', daftar: 2000, bulanan: 9800 },
     { name: 'Apr', daftar: 2780, bulanan: 3908 },
     { name: 'Mei', daftar: 1890, bulanan: 4800 },
-  ];
-
-  const dataUserBaru = [
-    { name: 'Mng 1', users: 12 }, { name: 'Mng 2', users: 19 },
-    { name: 'Mng 3', users: 15 }, { name: 'Mng 4', users: 22 },
   ];
 
   const styles = {
@@ -70,20 +127,30 @@ const DashboardAdmin = () => {
     <AdminLayout title="Pusat Kendali Admin">
       <div style={styles.container}>
         
-        {/* TOP METRICS: USER & PENDAFTARAN */}
+        {/* TOP METRICS: BERDASARKAN DATA FIREBASE */}
         <div style={styles.statsGrid}>
           <div style={styles.card}>
-            <span style={styles.labelHeader}>USER LOGIN (HARI INI)</span>
-            <div style={{fontSize: '28px', fontWeight: '900'}}>42 <span style={{fontSize: '14px', color: '#10B981'}}>+5</span></div>
+            <span style={styles.labelHeader}>TOTAL USER (HARI INI)</span>
+            <div style={{fontSize: '28px', fontWeight: '900'}}>
+              {loading ? "..." : totalUsers} 
+              {usersToday > 0 && (
+                <span style={{fontSize: '14px', color: '#10B981', marginLeft: '8px'}}>
+                  +{usersToday}
+                </span>
+              )}
+            </div>
             <Users size={40} style={{position: 'absolute', right: '-10px', bottom: '-10px', opacity: 0.1}} />
           </div>
           
           <div style={styles.card}>
             <span style={styles.labelHeader}>TOTAL PENDAFTAR LES</span>
-            <div style={{fontSize: '28px', fontWeight: '900', color: colors.primary}}>156</div>
+            <div style={{fontSize: '28px', fontWeight: '900', color: colors.primary}}>
+               {loading ? "..." : pendaftarCount}
+            </div>
             <TrendingUp size={40} style={{position: 'absolute', right: '-10px', bottom: '-10px', opacity: 0.1}} />
           </div>
 
+          {/* Untuk Uang Pendaftaran dan Bulanan, Anda bisa menambahkan listener ke node 'Payments' di Firebase */}
           <div style={styles.card}>
             <span style={styles.labelHeader}>UANG PENDAFTARAN</span>
             <div style={{fontSize: '22px', fontWeight: '900', color: '#10B981'}}>Rp 4.500.000</div>
@@ -122,24 +189,28 @@ const DashboardAdmin = () => {
             </div>
           </div>
 
+          {/* DYNAMIC BAR CHART (Sekarang sudah terisi) */}
           <div style={styles.card}>
-            <h3 style={styles.sectionTitle}><BarChart3 size={18} color="#FACC15"/> Pertumbuhan Siswa Baru (Mingguan)</h3>
+            <h3 style={styles.sectionTitle}><BarChart3 size={18} color="#FACC15"/> Pertumbuhan Siswa Baru (7 Hari Terakhir)</h3>
             <div style={{ width: '100%', height: 250 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dataUserBaru}>
                   <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#334155' : '#e2e8f0'} vertical={false} />
                   <XAxis dataKey="name" stroke={colors.textMuted} fontSize={10} axisLine={false} />
-                  <YAxis stroke={colors.textMuted} fontSize={10} axisLine={false} />
-                  <Tooltip contentStyle={{ backgroundColor: colors.cardBg, border: `1px solid ${colors.border}`, borderRadius: '12px' }} />
-                  <Bar dataKey="users" fill={colors.primary} radius={[6, 6, 0, 0]} barSize={40} />
+                  <YAxis stroke={colors.textMuted} fontSize={10} axisLine={false} allowDecimals={false} />
+                  <Tooltip 
+                    cursor={{fill: isDarkMode ? '#ffffff05' : '#00000005'}}
+                    contentStyle={{ backgroundColor: colors.cardBg, border: `1px solid ${colors.border}`, borderRadius: '12px' }} 
+                  />
+                  <Bar dataKey="users" fill={colors.primary} radius={[6, 6, 0, 0]} barSize={35} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
         </div>
 
-        {/* PAYMENT HISTORY TABLE */}
-        <div style={{...styles.card, marginBottom: '25px'}}>
+{/* PAYMENT HISTORY TABLE */}
+<div style={{...styles.card, marginBottom: '25px'}}>
           <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '20px', alignItems: 'center'}}>
             <h3 style={{...styles.sectionTitle, marginBottom: 0}}>
               <Clock size={18} color={colors.primary} /> Histori Pembayaran Terbaru
@@ -152,6 +223,7 @@ const DashboardAdmin = () => {
               <thead>
                 <tr style={{textAlign: 'left', borderBottom: `1px solid ${colors.border}`, fontSize: '11px', color: colors.textMuted}}>
                   <th style={{padding: '12px 8px'}}>SISWA</th>
+                  <th style={{padding: '12px 8px'}}>PAKET & KELAS</th> {/* KOLOM BARU */}
                   <th style={{padding: '12px 8px'}}>JENIS</th>
                   <th style={{padding: '12px 8px'}}>JUMLAH</th>
                   <th style={{padding: '12px 8px'}}>TANGGAL</th>
@@ -160,12 +232,19 @@ const DashboardAdmin = () => {
               </thead>
               <tbody>
                 {[
-                  { nama: 'Farid Febriansyah', jenis: 'Bulanan', jumlah: 'Rp 350.000', tgl: '20 Jan 2026', status: 'Sukses' },
-                  { nama: 'Budi Santoso', jenis: 'Pendaftaran', jumlah: 'Rp 150.000', tgl: '19 Jan 2026', status: 'Sukses' },
-                  { nama: 'Siti Aminah', jenis: 'Bulanan', jumlah: 'Rp 350.000', tgl: '18 Jan 2026', status: 'Pending' },
+                  { nama: 'Farid Febriansyah', paket: 'Brilliant', kelas: 'XII-IPA-1', jenis: 'Bulanan', jumlah: 'Rp 350.000', tgl: '20 Jan 2026', status: 'Sukses' },
+                  { nama: 'Budi Santoso', paket: 'Excellent', kelas: 'IX-A', jenis: 'Pendaftaran', jumlah: 'Rp 150.000', tgl: '19 Jan 2026', status: 'Sukses' },
+                  { nama: 'Siti Aminah', paket: 'Brilliant', kelas: 'XII-IPS-2', jenis: 'Bulanan', jumlah: 'Rp 350.000', tgl: '18 Jan 2026', status: 'Pending' },
                 ].map((row, i) => (
                   <tr key={i} style={{borderBottom: `1px solid ${colors.border}`, fontSize: '14px'}}>
-                    <td style={{padding: '15px 8px', fontWeight: '700'}}>{row.nama}</td>
+                    <td style={{padding: '15px 8px'}}>
+                        <div style={{fontWeight: '700'}}>{row.nama}</div>
+                    </td>
+                    {/* DATA PAKET & KELAS */}
+                    <td style={{padding: '15px 8px'}}>
+                        <div style={{fontWeight: '600', fontSize: '13px'}}>{row.paket}</div>
+                        <div style={{fontSize: '11px', color: colors.textMuted}}>{row.kelas}</div>
+                    </td>
                     <td style={{padding: '15px 8px'}}>{row.jenis}</td>
                     <td style={{padding: '15px 8px', fontWeight: '800', color: '#10B981'}}>{row.jumlah}</td>
                     <td style={{padding: '15px 8px', fontSize: '12px', color: colors.textMuted}}>{row.tgl}</td>

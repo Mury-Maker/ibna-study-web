@@ -19,6 +19,8 @@ import EditProfileAdmin from './pages/Admin/form/EditProfileAdmin';
 import AdminKelas from './pages/Admin/Kelas';
 import AdminPaketLes from './pages/Admin/PaketLes';
 import AdminJadwal from './pages/Admin/Jadwal';
+import ManajemenUser from './pages/Admin/User';
+import AdminVerifikasiPembayaran from './pages/Admin/Pembayaran';
 import NotFound from './pages/NotFound';
 import { ThemeProvider } from './context/ThemeContext'; // Import ThemeProvider lo
 
@@ -49,6 +51,8 @@ function App() {
           <Route path="/Admin/Kelas" element={<AdminKelas />} />
           <Route path="/Admin/PaketLes" element={<AdminPaketLes />} />
           <Route path="/Admin/Jadwal" element={<AdminJadwal />} />
+          <Route path="/Admin/User" element={<ManajemenUser />} />
+          <Route path="/Admin/Pembayaran" element={<AdminVerifikasiPembayaran />} />
           {/* Redirect jika halaman tidak ditemukan */}
           <Route path="*" element={<NotFound />} />
         </Routes>
