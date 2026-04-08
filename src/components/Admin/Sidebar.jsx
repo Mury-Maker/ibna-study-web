@@ -94,6 +94,8 @@ const Sidebar = ({ isOpen, toggleSidebar, isMobile }) => {
           <NavLink path="/Admin/PaketLes" icon={<FileText size={20} />} name="Paket Les" />
           <NavLink path="/Admin/Jadwal" icon={<MessageSquare size={20} />} name="Jadwal Les" />
           <NavLink path="/Admin/Mapel" icon={<PlusCircle size={20} />} name="Mapel" />
+          <NavLink path="/Admin/User" icon={<PlusCircle size={20} />} name="Data User" />
+          <NavLink path="/Admin/Pembayaran" icon={<PlusCircle size={20} />} name="Pembayaran" />
         </div>
 
         <button 
