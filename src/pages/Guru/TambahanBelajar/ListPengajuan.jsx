@@ -8,14 +8,13 @@ const ListPengajuan = ({ daftar, loading, statusFilter, setStatusFilter, onSelec
 
   const styles = {
     topActions: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', gap: '15px', flexWrap: 'wrap', width: '100%' },
-    // Search Group Sinkron
     searchGroup: { 
       display: 'flex', 
       alignItems: 'center', 
       backgroundColor: colors.cardBg, 
       border: `1px solid ${colors.border}`, 
       borderRadius: '8px', 
-      padding: '10px 15px', // Padding diseragamkan
+      padding: '10px 15px', 
       flex: 1, 
       minWidth: '280px', 
       boxSizing: 'border-box'
@@ -56,7 +55,11 @@ const ListPengajuan = ({ daftar, loading, statusFilter, setStatusFilter, onSelec
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', flexWrap: 'wrap', gap: '10px' }}>
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                 <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: colors.primary, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><User size={20} /></div>
-                <div><h4 style={{ color: colors.textPrimary, margin: 0, fontSize: '15px', fontWeight: '700' }}>{item.namaSiswa}</h4><span style={{ fontSize: '12px', color: colors.textMuted }}>{item.nama_kelas} • {item.jenjang}</span></div>
+                <div>
+                  <h4 style={{ color: colors.textPrimary, margin: 0, fontSize: '15px', fontWeight: '700' }}>{item.namaSiswa}</h4>
+                  {/* FIX: TAMPILKAN NAMA KELAS DAN JENJANG DARI DATA ASLI RTDB */}
+                  <span style={{ fontSize: '12px', color: colors.textMuted }}>{item.nama_kelas} • {item.jenjang}</span>
+                </div>
               </div>
               <span style={styles.badgeStatus(item.status)}>{item.status}</span>
             </div>
