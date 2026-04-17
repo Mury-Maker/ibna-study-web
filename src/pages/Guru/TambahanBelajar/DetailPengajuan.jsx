@@ -16,7 +16,6 @@ const DetailPengajuan = ({ data, onBack, onConfirmAction }) => {
       width: '100%', 
       boxSizing: 'border-box' 
     },
-    // Grid untuk menampilkan info waktu secara sejajar dan Gagah
     infoBox: { 
       display: 'grid', 
       gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', 
@@ -41,9 +40,9 @@ const DetailPengajuan = ({ data, onBack, onConfirmAction }) => {
       gap: '10px',
       backgroundColor: type === 'approve' ? '#16a34a' : type === 'reject' ? '#dc2626' : colors.border, 
       color: type === 'cancel' ? colors.textPrimary : '#fff',
-      transition: '0.2s'
+      transition: '0.2s',
+      opacity: (type === 'reject' && isRejecting && !reason) ? 0.5 : 1
     }),
-    // Warna Badge sinkron dengan skema Menunggu | Disetujui | Ditolak
     badgeStatus: (status) => ({
       padding: '6px 16px', 
       borderRadius: '20px', 
@@ -72,7 +71,6 @@ const DetailPengajuan = ({ data, onBack, onConfirmAction }) => {
       </button>
 
       <div style={styles.card}>
-        {/* Header Profil Siswa */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: colors.primary, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -80,13 +78,13 @@ const DetailPengajuan = ({ data, onBack, onConfirmAction }) => {
             </div>
             <div>
               <h2 style={{ color: colors.textPrimary, margin: 0, fontSize: '15px', fontWeight: '700' }}>{data.namaSiswa}</h2>
+              {/* FIX: TAMPILKAN KELAS DAN JENJANG DARI DATA ASLI RTDB */}
               <p style={{ color: colors.textMuted, margin: '2px 0 0', fontSize: '12px' }}>{data.nama_kelas} • {data.jenjang}</p>
             </div>
           </div>
           <span style={styles.badgeStatus(data.status)}>{data.status}</span>
         </div>
 
-        {/* Info Box: Menampilkan Tanggal dan Jam Diminta */}
         <div style={styles.infoBox}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: colors.textPrimary }}>
             <Calendar size={18} color={colors.primary} /> 
@@ -104,16 +102,14 @@ const DetailPengajuan = ({ data, onBack, onConfirmAction }) => {
           </div>
         </div>
 
-        {/* Detail Alasan Permintaan Siswa */}
         <div style={{ marginBottom: '25px' }}>
           <span style={{ fontSize: '10px', color: colors.textMuted, fontWeight: '800', letterSpacing: '1px' }}>ALASAN PERMINTAAN:</span>
           <p style={{ color: colors.textPrimary, fontSize: '14px', lineHeight: '1.6', marginTop: '8px', backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', padding: '15px', borderRadius: '10px' }}>
             <MessageCircle size={16} style={{marginRight:'8px', verticalAlign:'middle', color: colors.primary}}/>
-            {data.alasanPermintaan || data.pesanSiswa}
+            {data.alasanPermintaan || data.pesanSiswa || "-"}
           </p>
         </div>
 
-        {/* Info Alasan Penolakan Jika Sudah Ditolak */}
         {data.status === "Ditolak" && data.alasanPenolakan && (
           <div style={{ backgroundColor: 'rgba(220, 38, 38, 0.05)', borderLeft: '4px solid #dc2626', padding: '15px', borderRadius: '8px', display: 'flex', gap: '10px', marginBottom: '20px' }}>
             <Info size={16} color="#dc2626" />
@@ -124,7 +120,6 @@ const DetailPengajuan = ({ data, onBack, onConfirmAction }) => {
           </div>
         )}
 
-        {/* Tombol Aksi: Hanya Muncul Jika Status "Menunggu" */}
         {data.status === "Menunggu" && !isRejecting && (
           <div style={{ display: 'flex', gap: '12px' }}>
             <button style={styles.actionBtn('approve')} onClick={() => onConfirmAction(data.id, 'Disetujui')}>
@@ -136,7 +131,6 @@ const DetailPengajuan = ({ data, onBack, onConfirmAction }) => {
           </div>
         )}
 
-        {/* Form Penolakan */}
         {isRejecting && (
           <div style={{ marginTop: '10px', borderTop: `1px solid ${colors.border}`, paddingTop: '20px' }}>
             <h4 style={{ color: colors.textPrimary, marginBottom: '12px', fontSize: '14px' }}>Alasan Penolakan:</h4>
