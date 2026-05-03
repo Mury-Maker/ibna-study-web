@@ -62,7 +62,7 @@ const TabForum = ({ mapelId, kelasId }) => {
   return (
     <div style={{ width: '100%' }}>
       {/* Box Input Posting */}
-      <div style={styles.card}>
+      {/* <div style={styles.card}>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <div style={{ width: '38px', height: '38px', borderRadius: '50%', backgroundColor: colors.primary + '20', color: colors.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Megaphone size={18} />
@@ -75,7 +75,7 @@ const TabForum = ({ mapelId, kelasId }) => {
           />
           <button onClick={handlePost} style={styles.btnPosting}>Posting</button>
         </div>
-      </div>
+      </div> */}
 
       {feeds.map((item) => (
         <div key={item.id} style={styles.card}>
