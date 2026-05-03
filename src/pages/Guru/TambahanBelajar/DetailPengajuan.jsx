@@ -1,11 +1,38 @@
 import React, { useState } from 'react';
 import { ChevronLeft, Calendar, Clock, User, MessageCircle, CheckCircle2, XCircle, Info } from 'lucide-react';
 import { useTheme } from '../../../context/ThemeContext';
+import { db } from '../../../api/firebase';
+import { ref, push } from "firebase/database";
 
 const DetailPengajuan = ({ data, onBack, onConfirmAction }) => {
   const { colors, isDarkMode } = useTheme();
   const [isRejecting, setIsRejecting] = useState(false);
   const [reason, setReason] = useState("");
+
+  // FUNGSI NOTIFIKASI INTERNAL
+  const kirimNotifInternal = async (status, alasan = "") => {
+    try {
+      const notifRef = ref(db, `Notifikasi/${data.classId}`);
+      await push(notifRef, {
+        judul: status === 'Disetujui' ? "Pengajuan Diterima!" : "Pengajuan Ditolak",
+        pesan: status === 'Disetujui' 
+          ? `Permintaan tambahan belajar lo untuk tanggal ${data.tglDiminta} telah disetujui.`
+          : `Maaf, permintaan tambahan belajar lo ditolak. Alasan: ${alasan}`,
+        createdAt: Date.now(),
+        isRead: false,
+        type: "tambahan"
+      });
+    } catch (err) {
+      console.error("Gagal kirim notif:", err);
+    }
+  };
+
+  const handleAction = async (id, status, alasan = "") => {
+    // Jalankan aksi utama (update status pengajuan)
+    await onConfirmAction(id, status, alasan);
+    // Kirim Notifikasi ke kelas siswa tersebut
+    await kirimNotifInternal(status, alasan);
+  };
 
   const styles = {
     card: { 
@@ -78,7 +105,6 @@ const DetailPengajuan = ({ data, onBack, onConfirmAction }) => {
             </div>
             <div>
               <h2 style={{ color: colors.textPrimary, margin: 0, fontSize: '15px', fontWeight: '700' }}>{data.namaSiswa}</h2>
-              {/* FIX: TAMPILKAN KELAS DAN JENJANG DARI DATA ASLI RTDB */}
               <p style={{ color: colors.textMuted, margin: '2px 0 0', fontSize: '12px' }}>{data.nama_kelas} • {data.jenjang}</p>
             </div>
           </div>
@@ -122,7 +148,7 @@ const DetailPengajuan = ({ data, onBack, onConfirmAction }) => {
 
         {data.status === "Menunggu" && !isRejecting && (
           <div style={{ display: 'flex', gap: '12px' }}>
-            <button style={styles.actionBtn('approve')} onClick={() => onConfirmAction(data.id, 'Disetujui')}>
+            <button style={styles.actionBtn('approve')} onClick={() => handleAction(data.id, 'Disetujui')}>
               <CheckCircle2 size={18}/> Terima
             </button>
             <button style={styles.actionBtn('reject')} onClick={() => setIsRejecting(true)}>
@@ -142,7 +168,7 @@ const DetailPengajuan = ({ data, onBack, onConfirmAction }) => {
             />
             <div style={{ display: 'flex', gap: '12px', marginTop: '15px' }}>
               <button style={styles.actionBtn('cancel')} onClick={() => setIsRejecting(false)}>Batal</button>
-              <button style={styles.actionBtn('reject')} onClick={() => onConfirmAction(data.id, 'Ditolak', reason)} disabled={!reason}>Kirim Penolakan</button>
+              <button style={styles.actionBtn('reject')} onClick={() => handleAction(data.id, 'Ditolak', reason)} disabled={!reason}>Kirim Penolakan</button>
             </div>
           </div>
         )}
