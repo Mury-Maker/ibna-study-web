@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-// FIX: Menambahkan 'Info' ke dalam daftar import dari lucide-react
-import { ChevronLeft, Plus, Trash2, Circle, CheckCircle2, Paperclip, Clock, AlertCircle, Info } from 'lucide-react';
+import { ChevronLeft, Plus, Trash2, Circle, CheckCircle2, Paperclip, Clock, AlertCircle, Info, Loader2 } from 'lucide-react';
 import { useTheme } from '../../../../context/ThemeContext';
 import { db } from '../../../../api/firebase';
 import { ref, push, set, update } from 'firebase/database';
+// IMPORT SUPABASE (Sesuaikan path config lo)
+import { supabase } from '../../../../api/supabase'; 
 
 const FormBuatKonten = ({ onBack, mapelId, kelasId, editData }) => {
   const { colors, isDarkMode } = useTheme();
@@ -20,14 +21,40 @@ const FormBuatKonten = ({ onBack, mapelId, kelasId, editData }) => {
   });
   
   const [fileAttached, setFileAttached] = useState(null); 
+  const [isUploading, setIsUploading] = useState(false); // State loading upload
   const [listPertanyaan, setListPertanyaan] = useState(
     editData?.pertanyaan || [{ id: Date.now(), soal: "", opsi: ["", "", "", ""], kunci: null, poin: 10 }]
   );
 
-  // Total skor hanya dihitung jika tipe konten adalah Tugas
   const totalPoinMaks = (tipeKonten === "Tugas" && (tipeTugas === "Essay" || tipeTugas === "Pilgan")) 
     ? listPertanyaan.reduce((acc, curr) => acc + (parseInt(curr.poin) || 0), 0) 
     : 0;
+
+  // --- FUNGSI UPLOAD KE SUPABASE ---
+  const uploadFileToSupabase = async (file) => {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `konten/${Date.now()}.${fileExt}`;
+      const filePath = `${fileName}`;
+
+      // Ganti 'ibna-study-storage' dengan nama bucket lo
+      const { data, error } = await supabase.storage
+        .from('ibna-study-storage')
+        .upload(filePath, file);
+
+      if (error) throw error;
+
+      // Ambil Public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('ibna-study-storage')
+        .getPublicUrl(filePath);
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading file:', error.message);
+      return null;
+    }
+  };
 
   const handleSimpan = async (statusKirim) => {
     if (!form.judul || !form.deskripsi) return alert("Judul dan Deskripsi wajib diisi!");
@@ -36,33 +63,54 @@ const FormBuatKonten = ({ onBack, mapelId, kelasId, editData }) => {
       return alert(`Gagal! Total skor saat ini ${totalPoinMaks}. Batas maksimal adalah 100.`);
     }
 
-    const payload = {
-      judul: form.judul,
-      deskripsi: form.deskripsi,
-      // FIX: Jika Materi, tenggat dikirim null agar tidak ada batas waktu
-      tenggat: tipeKonten === "Tugas" ? `${form.tenggatTanggal}T${form.tenggatWaktu}` : null, 
-      mapelId,
-      kelasId,
-      tipeKonten,
-      tipeTugas: tipeKonten === "Tugas" ? tipeTugas : null,
-      pertanyaan: (tipeKonten === "Tugas" && (tipeTugas === "Essay" || tipeTugas === "Pilgan")) ? listPertanyaan : null,
-      poinMaksimal: tipeKonten === "Tugas" ? totalPoinMaks : 0, 
-      fileUrl: (tipeKonten === "Materi" || (tipeKonten === "Tugas" && tipeTugas === "File")) ? (editData?.fileUrl || "link_dummy_file_pdf") : null,
-      status: statusKirim,
-      updatedAt: Date.now()
-    };
+    setIsUploading(true); // Mulai loading
 
     try {
+      let finalFileUrl = editData?.fileUrl || null;
+
+      // Jika ada file baru yang dipilih, upload dulu
+      if (fileAttached) {
+        const uploadedUrl = await uploadFileToSupabase(fileAttached);
+        if (uploadedUrl) {
+          finalFileUrl = uploadedUrl;
+        } else {
+          setIsUploading(false);
+          return alert("Gagal mengupload file lampiran.");
+        }
+      }
+
+      const payload = {
+        judul: form.judul,
+        deskripsi: form.deskripsi,
+        tenggat: tipeKonten === "Tugas" ? `${form.tenggatTanggal}T${form.tenggatWaktu}` : null, 
+        mapelId,
+        kelasId,
+        tipeKonten,
+        tipeTugas: tipeKonten === "Tugas" ? tipeTugas : null,
+        pertanyaan: (tipeKonten === "Tugas" && (tipeTugas === "Essay" || tipeTugas === "Pilgan")) ? listPertanyaan : null,
+        poinMaksimal: tipeKonten === "Tugas" ? totalPoinMaks : 0, 
+        // SEKARANG PAKAI LINK ASLI DARI SUPABASE
+        fileUrl: (tipeKonten === "Materi" || (tipeKonten === "Tugas" && tipeTugas === "File")) ? finalFileUrl : null,
+        status: statusKirim,
+        updatedAt: Date.now()
+      };
+
       if (isEditMode) {
         await update(ref(db, `Konten/${editData.id}`), payload);
       } else {
         const newRef = push(ref(db, 'Konten'));
         await set(newRef, { ...payload, createdAt: Date.now() });
       }
+      
       onBack();
-    } catch (e) { alert(e.message); }
+    } catch (e) { 
+      alert(e.message); 
+    } finally {
+      setIsUploading(false); // Matikan loading
+    }
   };
 
+  // ... (Sisa fungsi updateSoal dan styles tetap sama)
   const updateSoal = (id, field, value, opsiIndex = null) => {
     const newPertanyaan = listPertanyaan.map(q => {
       if (q.id === id) {
@@ -97,8 +145,21 @@ const FormBuatKonten = ({ onBack, mapelId, kelasId, editData }) => {
       <div style={{ padding: '20px 25px', borderBottom: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <button onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', color: colors.textPrimary, cursor: 'pointer', fontWeight: '700', fontSize: '15px' }}><ChevronLeft size={20} /> Kembali</button>
         <div style={{ display: 'flex', gap: '10px' }}>
-          <button onClick={() => handleSimpan("Draft")} style={{ color: colors.primary, padding: '10px 20px', borderRadius: '8px', border: `1px solid ${colors.primary}`, fontWeight: '700', cursor: 'pointer', background: 'none', fontSize: '14px' }}>Draft</button>
-          <button onClick={() => handleSimpan("Terbit")} style={{ backgroundColor: colors.primary, color: '#fff', padding: '10px 25px', borderRadius: '8px', border: 'none', fontWeight: '800', cursor: 'pointer', fontSize: '14px' }}>{isEditMode ? "Update" : "Terbitkan"}</button>
+          <button 
+            disabled={isUploading} 
+            onClick={() => handleSimpan("Draft")} 
+            style={{ color: colors.primary, padding: '10px 20px', borderRadius: '8px', border: `1px solid ${colors.primary}`, fontWeight: '700', cursor: 'pointer', background: 'none', fontSize: '14px', opacity: isUploading ? 0.5 : 1 }}
+          >
+            Draft
+          </button>
+          <button 
+            disabled={isUploading} 
+            onClick={() => handleSimpan("Terbit")} 
+            style={{ backgroundColor: colors.primary, color: '#fff', padding: '10px 25px', borderRadius: '8px', border: 'none', fontWeight: '800', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px', opacity: isUploading ? 0.8 : 1 }}
+          >
+            {isUploading ? <Loader2 size={16} className="animate-spin" /> : null}
+            {isEditMode ? "Update" : "Terbitkan"}
+          </button>
         </div>
       </div>
 
@@ -121,12 +182,15 @@ const FormBuatKonten = ({ onBack, mapelId, kelasId, editData }) => {
                 <input type="file" id="fileUpload" style={{ display: 'none' }} onChange={(e) => setFileAttached(e.target.files[0])} />
                 <label htmlFor="fileUpload" style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
                   <Paperclip size={24} color={colors.primary} />
-                  <span style={{ fontSize: '13px', fontWeight: '700', color: colors.textPrimary }}>{fileAttached ? fileAttached.name : (editData?.fileUrl ? "Ganti File" : "Pilih File Materi")}</span>
+                  <span style={{ fontSize: '13px', fontWeight: '700', color: colors.textPrimary }}>
+                    {fileAttached ? fileAttached.name : (editData?.fileUrl ? "File Sudah Ada (Klik untuk Ganti)" : "Pilih File Materi")}
+                  </span>
                 </label>
               </div>
             </div>
           )}
 
+          {/* ... Sisa render pertanyaan dan sidebar tetap sama ... */}
           {tipeKonten === "Tugas" && (tipeTugas === "Essay" || tipeTugas === "Pilgan") && (
             <div style={{ marginTop: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -170,7 +234,6 @@ const FormBuatKonten = ({ onBack, mapelId, kelasId, editData }) => {
             </select>
           </div>
 
-          {/* FIX: TENGGAT HANYA MUNCUL JIKA TIPE KONTEN ADALAH TUGAS */}
           {tipeKonten === "Tugas" ? (
             <>
               <div style={styles.inputGroup}>
@@ -196,7 +259,7 @@ const FormBuatKonten = ({ onBack, mapelId, kelasId, editData }) => {
             </>
           ) : (
             <div style={styles.noteBox}>
-              <Info size={16} /> {/* FIX: Ikon Info sekarang sudah didefinisikan */}
+              <Info size={16} />
               <span>Konten Materi tidak memerlukan tenggat waktu.</span>
             </div>
           )}
