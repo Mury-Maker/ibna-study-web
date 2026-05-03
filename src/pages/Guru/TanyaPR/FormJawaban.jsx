@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ChevronLeft, Send, Paperclip, Loader2, X, Info } from 'lucide-react';
 import { useTheme } from '../../../context/ThemeContext';
 import { db } from '../../../api/firebase';
-import { ref, update } from "firebase/database";
+import { ref, update, push } from "firebase/database";
 import { supabase } from '../../../api/supabase';
 
 const FormJawaban = ({ data, onBack, onSuccess }) => {
@@ -33,17 +33,33 @@ const FormJawaban = ({ data, onBack, onSuccess }) => {
         url = supabase.storage.from('ibna-study-storage').getPublicUrl(`jawaban-pr/${fileName}`).data.publicUrl;
       }
 
+      // Update data jawaban di node TanyaPR
       await update(ref(db, `TanyaPR/${data.id}`), {
         judulJawaban: form.judul,
         deskripsiJawaban: form.deskripsi,
         urlFileJawaban: url,
-        status: "Terjawab", // SINKRON DENGAN DATABASE
+        status: "Terjawab",
         answeredAt: new Date().toISOString()
       });
 
+      // --- LOGIKA NOTIFIKASI INTERNAL ---
+      // Kirim notifikasi ke node Notifikasi berdasarkan classId siswa
+      const notifRef = ref(db, `Notifikasi/${data.classId}`);
+      await push(notifRef, {
+        judul: "PR Telah Dijawab!",
+        pesan: `Jawaban untuk pertanyaan "${data.judulPR}" sudah dikirim guru. Cek sekarang!`,
+        createdAt: Date.now(),
+        isRead: false,
+        type: "tanya_pr",
+        route: "tanya_pr"
+      });
+      // ----------------------------------
+
       alert("✅ Jawaban berhasil dikirim!");
       onSuccess();
-    } catch (err) { alert("❌ Gagal: " + err.message); } 
+    } catch (err) { 
+      alert("❌ Gagal: " + err.message); 
+    } 
     finally { setUploading(false); }
   };
 
