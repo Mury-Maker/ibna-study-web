@@ -2,10 +2,9 @@ import React, { useState, useEffect } from 'react';
 import GuruLayout from '../../layouts/GuruLayout';
 import { useTheme } from '../../context/ThemeContext';
 import { db } from '../../api/firebase';
-import { ref, onValue, set, get } from 'firebase/database';
+import { ref, onValue, set } from 'firebase/database';
 import { 
-  Users as UsersIcon, ChevronRight, ArrowLeft, 
-  RefreshCw, Eye, Calendar, X, Clock, ShieldCheck
+  Users as UsersIcon, ArrowLeft, RefreshCw, Eye, Calendar, X, ShieldCheck, Lock, Unlock 
 } from 'lucide-react';
 
 const RekapNilai = () => {
@@ -18,104 +17,135 @@ const RekapNilai = () => {
   const [dataNilaiSiswa, setDataNilaiSiswa] = useState([]);
   const [allNilaiRaw, setAllNilaiRaw] = useState([]);
   const [allKontenRaw, setAllKontenRaw] = useState({});
+  const [allUjianRaw, setAllUjianRaw] = useState({});
   const [allUsers, setAllUsers] = useState({});
+  const [statusKunciKelas, setStatusKunciKelas] = useState({});
 
-  const listBulan = [
-    { id: "01", nama: "Januari" }, { id: "02", nama: "Februari" }, { id: "03", nama: "Maret" },
-    { id: "04", nama: "April" }, { id: "05", nama: "Mei" }, { id: "06", nama: "Juni" },
-    { id: "07", nama: "Juli" }, { id: "08", nama: "Agustus" }, { id: "09", nama: "September" },
-    { id: "10", nama: "Oktober" }, { id: "11", nama: "November" }, { id: "12", nama: "Desember" }
+  const listPeriode = [
+    { id: "T1", nama: "Triwulan I (Juli - September)", range: [6, 8] },
+    { id: "T2", nama: "Triwulan II (Oktober - Desember)", range: [9, 11] },
+    { id: "T3", nama: "Triwulan III (Januari - Maret)", range: [0, 2] },
+    { id: "T4", nama: "Triwulan IV (April - Juni)", range: [3, 5] }
   ];
   
-  const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, '0'));
-  const [selectedYear, setSelectedYear] = useState("2026");
+  const [selectedPeriode, setSelectedPeriode] = useState("T4"); 
+  const [selectedYear] = useState("2026");
 
-  const monthKey = `${selectedYear}-${selectedMonth}`; 
-  const currentMonthName = listBulan.find(b => b.id === selectedMonth).nama;
+  const getNamaBulan = (monthIndex) => {
+    return ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"][monthIndex];
+  };
 
   useEffect(() => {
-    // 1. Ambil Data Master Users (Source of Truth untuk Nama Lengkap)
     onValue(ref(db, 'Users'), (snap) => setAllUsers(snap.val() || {}));
-    
-    // 2. Ambil Konten & Nilai
     onValue(ref(db, 'Konten'), (snap) => setAllKontenRaw(snap.val() || {}));
+    onValue(ref(db, 'UjianPerbulan'), (snap) => setAllUjianRaw(snap.val() || {}));
     onValue(ref(db, 'Nilai'), (snap) => {
         const raw = snap.exists() ? Object.keys(snap.val()).map(k => ({ id: k, ...snap.val()[k] })) : [];
         setAllNilaiRaw(raw);
     });
-
-    // 3. Ambil Daftar Kelas
     onValue(ref(db, 'Kelas'), (snap) => {
       if (snap.exists()) {
         const list = Object.keys(snap.val()).map(k => ({ id: k, nama: snap.val()[k].nama_kelas }));
         setDaftarKelas(list);
       }
     });
-  }, []);
+
+    const periodeKey = `${selectedYear}_${selectedPeriode}`;
+    onValue(ref(db, 'Laporan'), (snap) => {
+      const dataLaporan = snap.val() || {};
+      const mappingKunci = {};
+      
+      Object.keys(dataLaporan).forEach(namaKelas => {
+        if (dataLaporan[namaKelas][periodeKey]?.metadata?.locked) {
+          mappingKunci[namaKelas] = true;
+        }
+      });
+      setStatusKunciKelas(mappingKunci);
+
+      if (selectedKelas && dataLaporan[selectedKelas.nama]?.[periodeKey]) {
+        // Memuat data dari laporan terkunci[cite: 1]
+        setDataNilaiSiswa(dataLaporan[selectedKelas.nama][periodeKey].dataSiswa || []);
+      } else if (selectedKelas && !isProcessing) {
+        setDataNilaiSiswa([]);
+      }
+    });
+  }, [selectedPeriode, selectedYear, selectedKelas]);
 
   const handleProsesRekap = () => {
+    if (statusKunciKelas[selectedKelas?.nama]) return;
+    
     setIsProcessing(true);
+    const currentRange = listPeriode.find(p => p.id === selectedPeriode).range;
     
     onValue(ref(db, 'Siswa'), (snapSiswa) => {
       const allSiswaData = snapSiswa.val() || {};
       const filteredSiswa = Object.values(allSiswaData).filter(s => s.nama_kelas === selectedKelas.nama);
 
-      // Filter Konten yang ada di periode terpilih
-      const kontenKelasIni = Object.keys(allKontenRaw).filter(kId => {
-          const k = allKontenRaw[kId];
-          if (k.kelasId !== selectedKelas.id && k.nama_kelas !== selectedKelas.nama) return false;
-          
-          let tglKonten = "";
-          if (typeof k.createdAt === 'number') tglKonten = new Date(k.createdAt).toISOString();
-          else if (typeof k.createdAt === 'string') tglKonten = k.createdAt;
-          
-          return tglKonten.startsWith(monthKey);
+      const kuisPeriodeIni = Object.keys(allKontenRaw).filter(kId => {
+        const k = allKontenRaw[kId];
+        if (k.kelasId !== selectedKelas.id) return false;
+        const tglBuat = new Date(k.createdAt);
+        return tglBuat.getFullYear().toString() === selectedYear && tglBuat.getMonth() >= currentRange[0] && tglBuat.getMonth() <= currentRange[1];
+      });
+
+      const ujianKelasIni = allUjianRaw[selectedKelas.id] || {};
+      const ujianPeriodeIni = Object.keys(ujianKelasIni).filter(uId => {
+        const u = ujianKelasIni[uId];
+        const tglBuat = new Date(u.createdAt);
+        return tglBuat.getFullYear().toString() === selectedYear && tglBuat.getMonth() >= currentRange[0] && tglBuat.getMonth() <= currentRange[1];
       });
 
       const hasilFinal = filteredSiswa.map(s => {
-        const nSiswa = allNilaiRaw.filter(n => n.studentId === s.userId);
+        let sumKuis = 0, sumUjian = 0;
+        let countKuis = kuisPeriodeIni.length;
+        let countUjian = ujianPeriodeIni.length;
         let adaBelumDinilai = false;
-        let totalSkorKuis = 0, totalSkorUjian = 0;
-        let jmlKuis = 0, jmlUjian = 0;
 
-        const detailList = kontenKelasIni.map(kId => {
-          const kInfo = allKontenRaw[kId];
-          const pengerjaan = nSiswa.find(n => n.kontenId === kId);
-          if (kInfo.tipeKonten === "Materi") return null;
+        const processDetail = (listIds, rawDataSource, tipeTugas) => {
+          return listIds.map(id => {
+            const info = rawDataSource[id];
+            const n = allNilaiRaw.find(val => val.studentId === s.userId && val.kontenId === id);
+            const skor = n && n.statusKoreksi === "Selesai" ? parseFloat(n.skor) : 0;
+            if (n && n.statusKoreksi !== "Selesai") adaBelumDinilai = true;
+            return {
+              judul: info.judul,
+              skor: skor,
+              tglTugas: new Date(info.createdAt).toLocaleDateString('id-ID'),
+              bulanIdx: new Date(info.createdAt).getMonth(),
+              tipe: tipeTugas,
+              status: n ? n.statusKoreksi : "Tidak Mengerjakan"
+            };
+          });
+        };
 
-          let statusTugas = "Belum Mengerjakan";
-          let skorTugas = 0;
+        const detailKuis = processDetail(kuisPeriodeIni, allKontenRaw, 'Kuis');
+        const detailUjian = processDetail(ujianPeriodeIni, ujianKelasIni, 'Ujian Perbulan');
 
-          if (pengerjaan) {
-            if (pengerjaan.statusKoreksi === "Selesai") {
-              statusTugas = "Selesai";
-              skorTugas = parseFloat(pengerjaan.skor) || 0;
-              if (kInfo.tipeKonten === "Tugas") { totalSkorKuis += skorTugas; jmlKuis++; }
-              else { totalSkorUjian += skorTugas; jmlUjian++; }
-            } else {
-              adaBelumDinilai = true;
-              statusTugas = "Belum Dinilai";
-              skorTugas = "Belum Dinilai"; 
-            }
-          } else {
-            if (kInfo.tipeKonten === "Tugas") jmlKuis++; else jmlUjian++;
-          }
-          return { judul: kInfo.judul, skor: skorTugas, tipe: kInfo.tipeKonten, status: statusTugas };
-        }).filter(Boolean);
+        detailKuis.forEach(d => sumKuis += d.skor);
+        detailUjian.forEach(d => sumUjian += d.skor);
 
-        const avgKuis = jmlKuis > 0 ? totalSkorKuis / jmlKuis : 0;
-        const avgUjian = jmlUjian > 0 ? totalSkorUjian / jmlUjian : 0;
-        const skorFinal = (avgKuis * 0.4) + (avgUjian * 0.6);
+        const rataKuis = countKuis > 0 ? sumKuis / countKuis : 0;
+        const rataUjian = countUjian > 0 ? sumUjian / countUjian : 0;
+        const skorAkhir = (rataKuis * 0.4) + (rataUjian * 0.6);
 
-        return { 
-          id: s.userId, 
-          // Ambil nama dari Users biar "Aditya Pratama" (bukan aditsiswa)
-          nama: allUsers[s.userId]?.nama || s.nama_siswa || "Siswa Tanpa Nama", 
-          rataKuis: avgKuis.toFixed(1),
-          rataUjian: avgUjian.toFixed(1),
-          rataAkhir: adaBelumDinilai ? "-" : skorFinal.toFixed(1), 
-          status: adaBelumDinilai ? "BELUM DINILAI" : (skorFinal >= 75 ? "LULUS" : "REMEDIAL"),
-          detailSemua: detailList
+        const groupedData = {};
+        [...detailKuis, ...detailUjian].forEach(item => {
+          const bln = getNamaBulan(item.bulanIdx);
+          if (!groupedData[bln]) groupedData[bln] = [];
+          groupedData[bln].push(item);
+        });
+
+        // Pastikan status dikalkulasi di sini[cite: 1]
+        const statusSiswa = adaBelumDinilai ? "BELUM DINILAI" : (skorAkhir >= 75 ? "LULUS" : "REMEDIAL");
+
+        return {
+          id: s.userId,
+          nama: allUsers[s.userId]?.nama || s.nama_siswa || "Siswa",
+          rataKuis: rataKuis.toFixed(1),
+          rataUjian: rataUjian.toFixed(1),
+          rataAkhir: parseFloat(skorAkhir.toFixed(1)),
+          status: statusSiswa,
+          groupedData
         };
       });
 
@@ -125,51 +155,43 @@ const RekapNilai = () => {
   };
 
   const handleSimpanLaporanFinal = async () => {
-    if (dataNilaiSiswa.length === 0) return alert("Proses sinkronisasi dulu!");
-    if (dataNilaiSiswa.some(s => s.status === "BELUM DINILAI")) return alert("Ada tugas belum dinilai!");
-
+    if (dataNilaiSiswa.length === 0) return alert("Sinkronisasi data dulu!");
+    const path = `Laporan/${selectedKelas.nama}/${selectedYear}_${selectedPeriode}`;
     try {
-      const path = `Laporan/${selectedKelas.nama}/${monthKey}`;
       await set(ref(db, path), {
-        metadata: {
-          bulan: currentMonthName,
-          generatedAt: new Date().toISOString(),
-          status: "FINAL",
-          locked: true,
-          guruId: "vRTOUuWo3ZZHIPhMczW5yFpvFCA2" 
+        metadata: { 
+          periode: listPeriode.find(p => p.id === selectedPeriode).nama, 
+          generatedAt: new Date().toISOString(), 
+          locked: true 
         },
-        dataSiswa: dataNilaiSiswa.map(s => ({
-          studentId: s.id,
-          nama: s.nama,
-          ringkasan: { rataKuis: s.rataKuis, rataUjian: s.rataUjian, nilaiAkhir: s.rataAkhir, status: s.status }
-        }))
+        dataSiswa: dataNilaiSiswa
       });
       alert("✅ Laporan Berhasil Dikunci!");
     } catch (e) { alert("Error: " + e.message); }
   };
 
-  const styles = {
-    container: { padding: '24px', animation: 'fadeIn 0.3s ease' },
-    card: { backgroundColor: colors.cardBg, borderRadius: '16px', padding: '24px', border: `1px solid ${colors.border}`, boxShadow: '0 4px 6px rgba(0,0,0,0.05)' },
-    statusBadge: (status) => {
-        let bg = '#94a3b820', co = '#94a3b8';
-        if (status === "LULUS") { bg = '#10b98115'; co = '#10b981'; }
-        else if (status === "REMEDIAL") { bg = '#ef444415'; co = '#ef4444'; }
-        else if (status === "BELUM DINILAI") { bg = '#f59e0b15'; co = '#f59e0b'; }
-        return { padding: '5px 12px', borderRadius: '6px', fontSize: '10px', fontWeight: '900', backgroundColor: bg, color: co, border: `1px solid ${co}` };
-    },
-    select: { padding: '8px', borderRadius: '8px', border: `1px solid ${colors.border}`, backgroundColor: isDarkMode ? '#334155' : '#fff', color: colors.textPrimary, fontWeight: '700' }
-  };
-
   if (!selectedKelas) {
     return (
-      <GuruLayout title="Rekap Nilai Siswa">
-        <div style={styles.container}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+      <GuruLayout title="Rekap Nilai">
+        <div style={{ padding: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px' }}>
+            <h3 style={{ color: colors.textPrimary }}>Daftar Kelas</h3>
+            <select 
+              style={{ padding: '10px', borderRadius: '10px', border: `1px solid ${colors.border}`, backgroundColor: colors.cardBg, color: colors.textPrimary, fontWeight: 'bold' }} 
+              value={selectedPeriode} 
+              onChange={(e) => { setSelectedPeriode(e.target.value); setDataNilaiSiswa([]); }}
+            >
+              {listPeriode.map(p => <option key={p.id} value={p.id}>{p.nama}</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '25px' }}>
             {daftarKelas.map((kls) => (
-              <div key={kls.id} style={styles.card}>
-                <h3 style={{ margin: '0 0 20px 0', color: colors.textPrimary }}>{kls.nama}</h3>
-                <button onClick={() => setSelectedKelas(kls)} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: 'none', backgroundColor: colors.primary, color: '#fff', fontWeight: '800', cursor: 'pointer' }}>Buka Panel Rekap</button>
+              <div key={kls.id} style={{ padding: '24px', backgroundColor: colors.cardBg, borderRadius: '16px', border: `1px solid ${colors.border}`, borderTop: `4px solid ${statusKunciKelas[kls.nama] ? '#10b981' : '#f59e0b'}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
+                  <h3 style={{ margin: 0, color: colors.textPrimary }}>{kls.nama}</h3>
+                  {statusKunciKelas[kls.nama] ? <Lock size={16} color="#10b981"/> : <Unlock size={16} color="#f59e0b"/>}
+                </div>
+                <button onClick={() => setSelectedKelas(kls)} style={{ width: '100%', padding: '12px', backgroundColor: colors.primary, color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' }}>Buka Rekap</button>
               </div>
             ))}
           </div>
@@ -180,84 +202,92 @@ const RekapNilai = () => {
 
   return (
     <GuruLayout title={`Rekap ${selectedKelas.nama}`}>
-      <div style={styles.container}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px' }}>
-          <div>
-            <button onClick={() => {setSelectedKelas(null); setDataNilaiSiswa([]);}} style={{ background: 'none', border: 'none', color: colors.textMuted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '700', marginBottom: '10px' }}><ArrowLeft size={18} /> Kembali</button>
-            <h3 style={{ margin: 0, color: colors.textPrimary }}>Rekapitulasi {selectedKelas.nama}</h3>
-            <p style={{ fontSize: '13px', color: colors.primary, fontWeight: '700', marginTop: '5px' }}>Periode: {currentMonthName} {selectedYear}</p>
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <Calendar size={18} color={colors.textMuted} />
-            <select style={styles.select} value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
-              {listBulan.map(b => <option key={b.id} value={b.id}>{b.nama}</option>)}
-            </select>
-            <button onClick={handleProsesRekap} disabled={isProcessing} style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', backgroundColor: colors.primary, color: '#fff', fontWeight: '800', display: 'flex', gap: '8px', opacity: isProcessing ? 0.7 : 1 }}>
-              <RefreshCw size={18} className={isProcessing ? "animate-spin" : ""} /> Sinkronisasi
-            </button>
-            <button onClick={handleSimpanLaporanFinal} style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', backgroundColor: '#10b981', color: '#fff', fontWeight: '800', display: 'flex', gap: '8px' }}>
-              <ShieldCheck size={18} /> Kunci FINAL
-            </button>
+      <div style={{ padding: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px' }}>
+          <button onClick={() => {setSelectedKelas(null); setDataNilaiSiswa([]);}} style={{ background: 'none', border: 'none', color: colors.textMuted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}><ArrowLeft size={18}/> Kembali</button>
+          
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {!statusKunciKelas[selectedKelas.nama] ? (
+              <>
+                <button onClick={handleProsesRekap} style={{ padding: '10px 20px', backgroundColor: colors.primary, color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <RefreshCw size={18} className={isProcessing ? "animate-spin" : ""}/> Sinkronisasi
+                </button>
+                {dataNilaiSiswa.length > 0 && (
+                  <button onClick={handleSimpanLaporanFinal} style={{ padding: '10px 20px', backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <ShieldCheck size={18}/> Kunci FINAL
+                  </button>
+                )}
+              </>
+            ) : (
+              <div style={{ padding: '10px 24px', backgroundColor: '#10b98120', color: '#10b981', borderRadius: '10px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #10b98150' }}>
+                <ShieldCheck size={18}/> LAPORAN TERKUNCI FINAL
+              </div>
+            )}
           </div>
         </div>
 
+        <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: colors.primary + '10', borderRadius: '12px', border: `1px solid ${colors.primary}40` }}>
+           <p style={{ margin: 0, color: colors.textPrimary, fontWeight: 'bold' }}>Menampilkan Periode: <span style={{ color: colors.primary }}>{listPeriode.find(p => p.id === selectedPeriode).nama}</span></p>
+        </div>
+        
         <div style={{ backgroundColor: colors.cardBg, borderRadius: '16px', border: `1px solid ${colors.border}`, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : '#f8fafc', borderBottom: `2px solid ${colors.border}` }}>
-                <th style={{ padding: '18px', textAlign: 'left', fontSize: '11px', color: colors.textMuted }}>NAMA SISWA</th>
-                <th style={{ padding: '18px', textAlign: 'center', fontSize: '11px', color: colors.textMuted }}>TOTAL</th>
-                <th style={{ padding: '18px', textAlign: 'center', fontSize: '11px', color: colors.textMuted }}>STATUS</th>
-                <th style={{ padding: '18px', textAlign: 'center', fontSize: '11px', color: colors.textMuted }}>DETAIL</th>
+              <tr style={{ backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : '#f8fafc' }}>
+                <th style={{ padding: '18px', textAlign: 'left', color: colors.textMuted }}>NAMA SISWA</th>
+                <th style={{ padding: '18px', color: colors.textMuted }}>KUIS (40%)</th>
+                <th style={{ padding: '18px', color: colors.textMuted }}>UJIAN (60%)</th>
+                <th style={{ padding: '18px', color: colors.textMuted }}>AKHIR</th>
+                <th style={{ padding: '18px', color: colors.textMuted }}>STATUS</th>
+                <th style={{ padding: '18px', color: colors.textMuted }}>AKSI</th>
               </tr>
             </thead>
             <tbody>
               {dataNilaiSiswa.map((s) => (
                 <tr key={s.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <td style={{ padding: '18px', fontWeight: '700', color: colors.textPrimary }}>{s.nama}</td>
-                  <td style={{ padding: '18px', textAlign: 'center', color: colors.primary, fontWeight: '900', fontSize: '18px' }}>{s.rataAkhir}</td>
-                  <td style={{ padding: '18px', textAlign: 'center' }}>
-                    <span style={styles.statusBadge(s.status)}>{s.status}</span>
+                  <td style={{ padding: '18px', color: colors.textPrimary, fontWeight: 'bold' }}>{s.nama}</td>
+                  <td style={{ textAlign: 'center', color: colors.textPrimary }}>{s.rataKuis}</td>
+                  <td style={{ textAlign: 'center', color: colors.textPrimary }}>{s.rataUjian}</td>
+                  <td style={{ textAlign: 'center', fontWeight: '900', color: colors.primary, fontSize: '18px' }}>{s.rataAkhir}</td>
+                  <td style={{ textAlign: 'center' }}>
+                    {/* Render status jika ada data[cite: 1] */}
+                    {s.status ? (
+                      <span style={{ padding: '5px 12px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold', backgroundColor: s.status === 'LULUS' ? '#10b98120' : (s.status === 'REMEDIAL' ? '#ef444420' : '#f59e0b20'), color: s.status === 'LULUS' ? '#10b981' : (s.status === 'REMEDIAL' ? '#ef4444' : '#f59e0b') }}>
+                        {s.status}
+                      </span>
+                    ) : "-"}
                   </td>
-                  <td style={{ padding: '18px', textAlign: 'center' }}>
-                    <button onClick={() => setSelectedStudent(s)} style={{ background: colors.primary + '20', color: colors.primary, border: 'none', padding: '8px', borderRadius: '8px', cursor: 'pointer' }}><Eye size={16} /></button>
-                  </td>
+                  <td style={{ textAlign: 'center' }}><button onClick={() => setSelectedStudent(s)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><Eye size={18} color={colors.primary}/></button></td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {dataNilaiSiswa.length === 0 && <div style={{ padding: '50px', textAlign: 'center', color: colors.textMuted }}>Klik Sinkronisasi untuk memproses data.</div>}
         </div>
       </div>
 
       {selectedStudent && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div style={{ backgroundColor: colors.cardBg, width: '100%', maxWidth: '600px', borderRadius: '20px', padding: '25px', position: 'relative', border: `1px solid ${colors.border}` }}>
-            <button onClick={() => setSelectedStudent(null)} style={{ position: 'absolute', right: '20px', top: '20px', background: 'none', border: 'none', color: colors.textMuted }}><X size={24}/></button>
-            <h3 style={{ marginBottom: '5px', color: colors.textPrimary }}>Rincian Nilai: {selectedStudent.nama}</h3>
-            <p style={{ fontSize: '12px', color: colors.textMuted, marginBottom: '20px' }}>Kalkulasi {currentMonthName} {selectedYear}</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                <div style={{ padding: '15px', borderRadius: '12px', backgroundColor: isDarkMode ? '#1a1a1a' : '#f9fafb', border: `1px solid ${colors.border}` }}>
-                    <h5 style={{ margin: '0 0 10px 0', color: colors.primary }}>LOG KUIS</h5>
-                    {selectedStudent.detailSemua.filter(d => d.tipe === "Tugas").length > 0 ? (
-                      selectedStudent.detailSemua.filter(d => d.tipe === "Tugas").map((n, i) => (
-                        <div key={i} style={{ fontSize: '11px', display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: `1px dashed ${colors.border}`, color: n.skor === "Belum Dinilai" ? '#f59e0b' : colors.textPrimary }}>
-                          <span>{n.judul}</span> <b>{n.skor}</b>
-                        </div>
-                      ))
-                    ) : (<span style={{ fontSize: '11px', color: colors.textMuted }}>Tidak ada kuis bulan ini</span>)}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, backdropFilter: 'blur(4px)' }}>
+          <div style={{ background: colors.cardBg, width: '90%', maxWidth: '600px', padding: '30px', borderRadius: '24px', position: 'relative', border: `1px solid ${colors.border}` }}>
+            <button onClick={() => setSelectedStudent(null)} style={{ position: 'absolute', right: '25px', top: '25px', cursor: 'pointer', background: 'none', border: 'none' }}><X size={24} color={colors.textPrimary}/></button>
+            <h3 style={{ color: colors.textPrimary, marginBottom: '20px' }}>{selectedStudent.nama}</h3>
+            <div style={{ maxHeight: '450px', overflowY: 'auto' }}>
+              {selectedStudent.groupedData && Object.keys(selectedStudent.groupedData).sort((a, b) => {
+                const order = ["Juli", "Agustus", "September", "Oktober", "November", "Desember", "Januari", "Februari", "Maret", "April", "Mei", "Juni"];
+                return order.indexOf(a) - order.indexOf(b);
+              }).map(bulan => (
+                <div key={bulan} style={{ marginBottom: '25px' }}>
+                  <div style={{ backgroundColor: colors.primary + '15', padding: '8px 15px', borderRadius: '8px', color: colors.primary, fontWeight: 'bold', fontSize: '14px', marginBottom: '10px' }}>{bulan}</div>
+                  {selectedStudent.groupedData[bulan].map((item, idx) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: `1px solid ${colors.border}` }}>
+                      <div>
+                        <div style={{ color: colors.textPrimary, fontWeight: 'bold', fontSize: '13px' }}>{item.judul}</div>
+                        <div style={{ color: colors.textMuted, fontSize: '11px' }}>{item.tipe} • Penugasan: {item.tglTugas}</div>
+                      </div>
+                      <div style={{ fontWeight: 'bold', color: item.tipe.includes('Ujian') ? '#8b5cf6' : colors.primary }}>{item.skor}</div>
+                    </div>
+                  ))}
                 </div>
-                <div style={{ padding: '15px', borderRadius: '12px', backgroundColor: isDarkMode ? '#1a1a1a' : '#f9fafb', border: `1px solid ${colors.border}` }}>
-                    <h5 style={{ margin: '0 0 10px 0', color: '#8b5cf6' }}>LOG UJIAN</h5>
-                    {selectedStudent.detailSemua.filter(d => d.tipe === "Ujian_Bulanan").length > 0 ? (
-                      selectedStudent.detailSemua.filter(d => d.tipe === "Ujian_Bulanan").map((n, i) => (
-                        <div key={i} style={{ fontSize: '11px', display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: `1px dashed ${colors.border}`, color: n.skor === "Belum Dinilai" ? '#f59e0b' : colors.textPrimary }}>
-                          <span>{n.judul}</span> <b>{n.skor}</b>
-                        </div>
-                      ))
-                    ) : (<span style={{ fontSize: '11px', color: colors.textMuted }}>Tidak ada ujian bulan ini</span>)}
-                </div>
+              ))}
             </div>
           </div>
         </div>
