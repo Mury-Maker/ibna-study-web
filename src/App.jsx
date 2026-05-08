@@ -30,6 +30,7 @@ function App() {
       <Router>
         <Routes>
           <Route path="/" element={<Login />} />
+          <Route path="/Login" element={<Login />} />
           
           {/* Route Guru - Pastikan path sesuai dengan menu di Sidebar */}
           <Route path="/Guru/Dashboard" element={<DashboardGuru />} />
