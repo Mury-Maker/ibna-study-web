@@ -7,7 +7,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { ref, onValue, query, orderByChild, equalTo } from 'firebase/database';
 import { 
   Users, TrendingUp, AlertTriangle, Clock, CalendarDays, 
-  ChevronRight, BarChart3, PieChart, MessageSquare, Loader2, Bell, Filter
+  ChevronRight, BarChart3, PieChart, MessageSquare, Loader2, Bell, Filter, Trophy
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell
@@ -22,6 +22,7 @@ const DashboardGuru = () => {
   const [jadwalHariIni, setJadwalHariIni] = useState([]);
   const [dataPresensiSemester, setDataPresensiSemester] = useState([]);
   const [topSiswaPerhatian, setTopSiswaPerhatian] = useState([]);
+  const [rankingSiswa, setRankingSiswa] = useState([]);
   const [agendaRekap, setAgendaRekap] = useState([]);
   const [filterTriwulan, setFilterTriwulan] = useState("T4");
   const [loading, setLoading] = useState(true);
@@ -54,7 +55,9 @@ const DashboardGuru = () => {
           listNamaKelas.forEach(namaKls => {
             if (lapData[namaKls] && lapData[namaKls][prevPeriodeKey]) {
               const dataSiswaLap = lapData[namaKls][prevPeriodeKey].dataSiswa || [];
-              aggregatedSiswa = [...aggregatedSiswa, ...dataSiswaLap];
+              // Tambahkan info kelas ke tiap objek siswa untuk ranking
+              const withClassInfo = dataSiswaLap.map(s => ({ ...s, asalKelas: namaKls }));
+              aggregatedSiswa = [...aggregatedSiswa, ...withClassInfo];
             }
           });
 
@@ -70,11 +73,23 @@ const DashboardGuru = () => {
             totalRemedial: remedialCount
           });
 
-          const top5 = aggregatedSiswa
+          // Data Top 5 Perhatian (Nilai Terendah)
+          const perhatian = [...aggregatedSiswa]
             .sort((a, b) => (a.rataAkhir || 0) - (b.rataAkhir || 0))
             .slice(0, 5)
             .map(s => ({ nama: s.nama, avg: (s.rataAkhir || 0).toFixed(1) }));
-          setTopSiswaPerhatian(top5);
+          setTopSiswaPerhatian(perhatian);
+
+          // Data Ranking Seluruh Siswa (Nilai Tertinggi)
+          const ranking = [...aggregatedSiswa]
+            .sort((a, b) => (b.rataAkhir || 0) - (a.rataAkhir || 0))
+            .map((s, index) => ({
+              rank: index + 1,
+              nama: s.nama,
+              kelas: s.asalKelas,
+              avg: (s.rataAkhir || 0).toFixed(1)
+            }));
+          setRankingSiswa(ranking);
 
           const periodeCek = `2026_${filterTriwulan}`;
           setAgendaRekap(listNamaKelas.filter(nama => !lapData[nama] || !lapData[nama][periodeCek]));
@@ -122,12 +137,14 @@ const DashboardGuru = () => {
     <GuruLayout title="Dashboard">
       <div style={{ padding: '16px 24px', animation: 'fadeIn 0.5s ease' }}>
         
+        {/* STATS ROW */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px', marginBottom: '20px' }}>
           <StatCard label="TOTAL SISWA" value={stats.totalSiswa} icon={<Users size={18}/>} color={colors.primary} />
           <StatCard label={`AVG NILAI (${prevPeriodeKey})`} value={`${stats.rataRataNilai}`} icon={<TrendingUp size={18}/>} color="#10B981" />
           <StatCard label={`REMEDIAL (${prevPeriodeKey})`} value={stats.totalRemedial} icon={<AlertTriangle size={18}/>} color="#F87171" />
         </div>
 
+        {/* JADWAL & INTERAKSI ROW */}
         <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '20px', marginBottom: '20px' }}>
             <div style={cardStyle(colors, '15px')}>
                 <h3 style={titleStyle}><CalendarDays size={16} color={colors.primary}/> Jadwal Hari Ini</h3>
@@ -147,6 +164,7 @@ const DashboardGuru = () => {
             </div>
         </div>
 
+        {/* PRESENSI & PERHATIAN ROW */}
         <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '20px', marginBottom: '20px' }}>
           <div style={cardStyle(colors, '15px')}>
             <h3 style={titleStyle}><BarChart3 size={16}/> Presensi Semester</h3>
@@ -180,6 +198,59 @@ const DashboardGuru = () => {
           </div>
         </div>
 
+        {/* RANKING NILAI SELURUH SISWA */}
+        <div style={{ ...cardStyle(colors, '20px'), marginBottom: '20px' }}>
+          <h3 style={titleStyle}><Trophy size={16} color="#F59E0B"/> Ranking Nilai Seluruh Kelas ({prevPeriodeKey})</h3>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+              <thead>
+                <tr style={{ borderBottom: `2px solid ${colors.border}`, textAlign: 'left' }}>
+                  <th style={{ padding: '12px 8px', fontSize: '11px', fontWeight: '900', color: colors.textMuted, width: '50px' }}>RANK</th>
+                  <th style={{ padding: '12px 8px', fontSize: '11px', fontWeight: '900', color: colors.textMuted }}>NAMA SISWA</th>
+                  <th style={{ padding: '12px 8px', fontSize: '11px', fontWeight: '900', color: colors.textMuted }}>KELAS</th>
+                  <th style={{ padding: '12px 8px', fontSize: '11px', fontWeight: '900', color: colors.textMuted, textAlign: 'right' }}>RATA-RATA</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rankingSiswa.length > 0 ? rankingSiswa.map((s, i) => (
+                  <tr key={i} style={{ 
+                    borderBottom: `1px solid ${colors.border}`,
+                    backgroundColor: i < 3 ? (isDarkMode ? 'rgba(245, 158, 11, 0.05)' : 'rgba(245, 158, 11, 0.02)') : 'transparent'
+                  }}>
+                    <td style={{ padding: '12px 8px' }}>
+                      <span style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        width: '24px', 
+                        height: '24px', 
+                        borderRadius: '50%', 
+                        fontSize: '11px', 
+                        fontWeight: '900',
+                        backgroundColor: i === 0 ? '#F59E0B' : i === 1 ? '#94A3B8' : i === 2 ? '#B45309' : 'transparent',
+                        color: i < 3 ? '#fff' : colors.textPrimary,
+                        border: i >= 3 ? `1px solid ${colors.border}` : 'none'
+                      }}>
+                        {s.rank}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px 8px', fontSize: '13px', fontWeight: '700', color: colors.textPrimary }}>{s.nama}</td>
+                    <td style={{ padding: '12px 8px', fontSize: '12px', color: colors.textMuted }}>{s.kelas}</td>
+                    <td style={{ padding: '12px 8px', textAlign: 'right', fontSize: '14px', fontWeight: '1000', color: parseFloat(s.avg) >= 75 ? '#10B981' : '#EF4444' }}>
+                      {s.avg}
+                    </td>
+                  </tr>
+                )) : (
+                  <tr>
+                    <td colSpan="4" style={{ padding: '20px', textAlign: 'center', fontSize: '12px', color: colors.textMuted }}>Data tidak tersedia.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* AGENDA BELUM REKAP ROW */}
         <div style={cardStyle(colors, '15px')}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
             <h3 style={titleStyle}><Bell size={16} color="#EF4444"/> Agenda Belum Rekap</h3>
