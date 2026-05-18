@@ -4,7 +4,7 @@ import { ref, onValue, update, get } from 'firebase/database';
 import { 
   UserCheck, UserPlus, Mail, Calendar, UserX, 
   Info, CreditCard, X, CheckCircle, ChevronLeft, ChevronRight,
-  Filter, ChevronDown, AlertCircle, AlertTriangle
+  Filter, ChevronDown, AlertCircle, AlertTriangle, Phone
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import AdminLayout from '../../layouts/AdminLayout';
@@ -50,7 +50,7 @@ const ManajemenUser = () => {
       setLoading(false);
     });
 
-    // 2. Ambil Data Detail Siswa (Untuk Kelas & Tanggal Bergabung)
+    // 2. Ambil Data Detail Siswa (Untuk Kelas, Tanggal Bergabung, & No HP Ortu)
     const siswaRef = ref(db, 'Siswa');
     const unsubscribeSiswa = onValue(siswaRef, (snapshot) => {
       const data = snapshot.val();
@@ -140,7 +140,7 @@ const ManajemenUser = () => {
       
       if (snap.exists()) {
         const data = snap.val();
-        const list = Object.keys(data).map(k => ({ id: k, ...data[k] }))
+        const list = Object.keys(data).map(k => ({ id: k, ...data[key] }))
           .filter(p => p.userId === user.id)
           .filter(p => {
              const jenis = String(p.jenis || '').toLowerCase();
@@ -323,7 +323,7 @@ const ManajemenUser = () => {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)', borderBottom: `1px solid ${colors.border}` }}>
-                  <th style={{ padding: '18px 24px', textAlign: 'left', color: colors.textMuted, fontSize: '12px', fontWeight: '800', letterSpacing: '1px' }}>DATA PENGGUNA</th>
+                  <th style={{ padding: '18px 24px', textAlign: 'left', color: colors.textMuted, fontSize: '12px', fontWeight: '800', letterSpacing: '1px' }}>NAMA PENGGUNA</th>
                   <th style={{ padding: '18px 24px', textAlign: 'left', color: colors.textMuted, fontSize: '12px', fontWeight: '800', letterSpacing: '1px' }}>INFO KONTAK</th>
                   <th style={{ padding: '18px 24px', textAlign: 'left', color: colors.textMuted, fontSize: '12px', fontWeight: '800', letterSpacing: '1px' }}>STATUS</th>
                   {activeTab === 'Siswa' && <th style={{ padding: '18px 24px', textAlign: 'center', color: colors.textMuted, fontSize: '12px', fontWeight: '800', letterSpacing: '1px' }}>AKSI & SPP</th>}
@@ -356,9 +356,16 @@ const ManajemenUser = () => {
                           )}
                         </td>
                         <td style={{ padding: '18px 24px' }}>
+                          {/* Info Email */}
                           <div style={{ color: colors.textPrimary, fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <Mail size={14} color={colors.primary} /> {user.email}
                           </div>
+                          {/* Info Kontak HP Ortu (Hanya Muncul Jika Ada Data Siswa Aktif) */}
+                          {siswaData && siswaData.noHpOrtu && (
+                            <div style={{ color: colors.textMuted, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
+                              <Phone size={14} color="#10B981" /> {siswaData.noHpOrtu}
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: '18px 24px' }}>
                            <span style={styles.badge(activeTab === 'Siswa' ? 'Siswa' : 'Lainnya')}>

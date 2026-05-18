@@ -5,7 +5,7 @@ import {
   Plus, Edit, Trash2, X, Save, Clock, 
   LayoutGrid, Calendar as CalendarIcon, User, UserCheck,
   Filter, ChevronLeft, ChevronRight, ChevronDown,
-  CheckCircle, AlertCircle, AlertTriangle
+  CheckCircle, AlertCircle, AlertTriangle, BookOpen
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import AdminLayout from '../../layouts/AdminLayout';
@@ -15,12 +15,14 @@ const AdminJadwal = () => {
   const [daftarJadwal, setDaftarJadwal] = useState([]);
   const [daftarKelas, setDaftarKelas] = useState([]);
   const [daftarGuru, setDaftarGuru] = useState([]);
+  const [daftarMapelKeseluruhan, setDaftarMapelKeseluruhan] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editId, setEditId] = useState(null);
 
   // --- STATE FILTER & PAGINATION ---
   const [filterKelas, setFilterKelas] = useState('');
   const [filterHari, setFilterHari] = useState('');
+  const [filterGuru, setFilterGuru] = useState(''); // TAMBAHAN: State untuk filter guru
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(5);
 
@@ -31,6 +33,7 @@ const AdminJadwal = () => {
   const [formData, setFormData] = useState({
     classId: '',     
     teacherId: '',   
+    mapel: '',
     hari: '',
     jamMulai: '',
     jamSelesai: ''
@@ -38,7 +41,6 @@ const AdminJadwal = () => {
 
   const daftarHari = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
 
-  // Fungsi Pemicu Notifikasi Melayang (Toast)
   const pemicuNotif = (message, type = 'success') => {
     setNotif({ show: true, message, type });
     setTimeout(() => {
@@ -47,19 +49,16 @@ const AdminJadwal = () => {
   };
 
   useEffect(() => {
-    // 1. Sinkronisasi data Jadwal
     const unsubscribeJadwal = onValue(ref(db, 'Jadwal'), (snapshot) => {
       const data = snapshot.val();
       setDaftarJadwal(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : []);
     });
 
-    // 2. Sinkronisasi data Kelas
     const unsubscribeKelas = onValue(ref(db, 'Kelas'), (snapshot) => {
       const data = snapshot.val();
       setDaftarKelas(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : []);
     });
 
-    // 3. Sinkronisasi data Guru
     const unsubscribeGuru = onValue(ref(db, 'Users'), (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -76,25 +75,31 @@ const AdminJadwal = () => {
       }
     });
 
+    const unsubscribeMapel = onValue(ref(db, 'Mapel'), (snapshot) => {
+      const data = snapshot.val();
+      setDaftarMapelKeseluruhan(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : []);
+    });
+
     return () => {
       unsubscribeJadwal();
       unsubscribeKelas();
       unsubscribeGuru();
+      unsubscribeMapel();
     };
   }, []);
 
-  // --- LOGIKA FILTER & PENCARIAN ---
+  // --- LOGIKA PENCARIAN & FILTER ---
   const filteredJadwal = daftarJadwal.filter((j) => {
     const matchKelas = filterKelas === '' || j.classId === filterKelas;
     const matchHari = filterHari === '' || j.hari === filterHari;
-    return matchKelas && matchHari;
+    const matchGuru = filterGuru === '' || j.teacherId === filterGuru; // TAMBAHAN: Logika filter guru
+    return matchKelas && matchHari && matchGuru;
   });
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterKelas, filterHari]);
+  }, [filterKelas, filterHari, filterGuru]);
 
-  // --- LOGIKA PAGINATION ---
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentJadwal = filteredJadwal.slice(indexOfFirstItem, indexOfLastItem);
@@ -110,12 +115,15 @@ const AdminJadwal = () => {
       setFormData({
         ...formData,
         classId: idKelas,
-        teacherId: selectedKelas.teacherId || ''
+        teacherId: selectedKelas.teacherId || '',
+        mapel: '' 
       });
     } else {
-      setFormData({ ...formData, classId: idKelas, teacherId: '' });
+      setFormData({ ...formData, classId: idKelas, teacherId: '', mapel: '' });
     }
   };
+
+  const mapelTersediaDiKelas = daftarMapelKeseluruhan.filter(m => m.classId === formData.classId);
 
   const getLabel = (list, id, type = 'nama') => {
     const item = list.find(i => i.id === id);
@@ -123,26 +131,19 @@ const AdminJadwal = () => {
     return type === 'kelas' ? item.nama_kelas : item.nama;
   };
 
-  // --- HANDLER SUBMIT (TAMBAH / EDIT) DENGAN VALIDASI DUPLIKAT ---
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // 1. Logika Pengecekan Duplikat
     const isDuplicate = daftarJadwal.some((jadwal) => {
-      // Jika dalam mode Edit, abaikan pengecekan pada data jadwal yang sedang diedit itu sendiri
       if (editId && jadwal.id === editId) return false;
-      
-      // Jika kombinasi Kelas dan Hari sudah ada di database, berarti duplikat!
       return jadwal.classId === formData.classId && jadwal.hari === formData.hari;
     });
 
     if (isDuplicate) {
-      // Jika duplikat, tampilkan notifikasi error dan hentikan eksekusi kode selanjutnya
       pemicuNotif(`Gagal! Jadwal untuk kelas ini di hari ${formData.hari} sudah ada.`, "error");
       return; 
     }
 
-    // 2. Eksekusi Simpan Jika Tidak Ada Duplikat
     try {
       const dbRef = editId ? ref(db, `Jadwal/${editId}`) : push(ref(db, 'Jadwal'));
       await set(dbRef, formData);
@@ -153,7 +154,6 @@ const AdminJadwal = () => {
     }
   };
 
-  // --- HANDLER HAPUS ---
   const handleDeleteClick = (id) => {
     setConfirmDelete({ show: true, id: id });
   };
@@ -180,7 +180,7 @@ const AdminJadwal = () => {
       setFormData({ ...jadwal });
     } else {
       setEditId(null);
-      setFormData({ classId: '', teacherId: '', hari: '', jamMulai: '', jamSelesai: '' });
+      setFormData({ classId: '', teacherId: '', mapel: '', hari: '', jamMulai: '', jamSelesai: '' });
     }
     setIsModalOpen(true);
   };
@@ -192,12 +192,12 @@ const AdminJadwal = () => {
     card: { 
       backgroundColor: colors.cardBg, 
       border: `1px solid ${colors.border}`, 
-      borderRadius: '20px', 
+      borderRadius: '24px', 
       overflow: 'hidden',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.05)'
+      boxShadow: '0 4px 20px rgba(0,0,0,0.02)'
     },
     tableHeader: {
-      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.01)',
+      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)',
       borderBottom: `2px solid ${colors.border}`,
       color: colors.textMuted,
       fontSize: '11px',
@@ -210,23 +210,41 @@ const AdminJadwal = () => {
       backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#fff', color: colors.textPrimary, 
       marginTop: '5px', boxSizing: 'border-box', appearance: 'none', cursor: 'pointer' 
     },
-    filterSelect: {
-      width: '100%', padding: '8px 30px 8px 32px', borderRadius: '8px', border: `1px solid ${colors.border}`, 
-      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : '#f8fafc', color: colors.textPrimary, 
-      fontSize: '13px', fontWeight: '600', boxSizing: 'border-box', appearance: 'none', cursor: 'pointer' 
+    selectDisabled: {
+      width: '100%', padding: '12px 12px 12px 40px', borderRadius: '12px', border: `1px solid ${colors.border}`, 
+      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : '#f3f4f6', color: colors.textMuted, 
+      marginTop: '5px', boxSizing: 'border-box', appearance: 'none', cursor: 'not-allowed'
     },
     input: {
       width: '100%', padding: '12px 12px 12px 40px', borderRadius: '12px', 
       border: `1px solid ${colors.border}`, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#fff', 
       color: colors.textPrimary, marginTop: '5px', boxSizing: 'border-box'
     },
+    
+    // --- STYLING BARU UNTUK FILTER AGAR RAPI ---
+    filterContainer: {
+      marginBottom: '25px', padding: '20px', 
+      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.015)' : '#f8fafc', 
+      borderRadius: '16px', border: `1px solid ${colors.border}`,
+      display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', alignItems: 'end'
+    },
+    labelFilter: {
+      fontSize: '11px', fontWeight: '800', color: colors.textMuted, marginBottom: '8px', letterSpacing: '0.5px'
+    },
+    filterDropdown: { 
+      width: '100%', padding: '12px 36px 12px 38px', borderRadius: '12px', 
+      border: `1px solid ${colors.border}`, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#fff', 
+      color: colors.textPrimary, fontSize: '13px', fontWeight: '600', appearance: 'none', cursor: 'pointer', outline: 'none',
+      boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
+    },
+
     infoBox: {
       padding: '15px', borderRadius: '12px', backgroundColor: colors.primary + '10',
       border: `1px dashed ${colors.primary}`, marginTop: '8px', display: 'flex', alignItems: 'center', gap: '10px'
     },
     paginationContainer: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 24px', borderTop: `1px solid ${colors.border}` },
-    pageBtn: { padding: '6px 12px', borderRadius: '8px', border: `1px solid ${colors.border}`, backgroundColor: colors.cardBg, color: colors.textPrimary, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', fontWeight: '600' },
-    pageNumber: (active) => ({ padding: '6px 12px', borderRadius: '8px', border: 'none', backgroundColor: active ? colors.primary : 'transparent', color: active ? '#fff' : colors.textPrimary, cursor: 'pointer', fontSize: '13px', fontWeight: '600' }),
+    pageBtn: { padding: '8px 12px', borderRadius: '8px', border: `1px solid ${colors.border}`, backgroundColor: colors.cardBg, color: colors.textPrimary, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', fontWeight: '600' },
+    pageNumber: (active) => ({ padding: '8px 14px', borderRadius: '8px', border: 'none', backgroundColor: active ? colors.primary : 'transparent', color: active ? '#fff' : colors.textPrimary, cursor: 'pointer', fontSize: '13px', fontWeight: '600' }),
     toastNotification: (type) => ({
       position: 'fixed', top: '20px', right: '20px',
       backgroundColor: type === 'success' ? '#10B981' : '#EF4444',
@@ -287,63 +305,86 @@ const AdminJadwal = () => {
             <h2 style={{ margin: 0, color: colors.textPrimary, fontWeight: '900', fontSize: '26px' }}>Jadwal Belajar</h2>
             <p style={{ color: colors.textMuted, fontSize: '14px', marginTop: '4px' }}>Atur alokasi waktu pengajaran berdasarkan data Kelas</p>
           </div>
-          <button onClick={() => openModal()} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', backgroundColor: colors.primary, color: '#fff', border: 'none', borderRadius: '14px', cursor: 'pointer', fontWeight: '700', boxShadow: `0 8px 20px ${colors.primary}40` }}>
+          <button onClick={() => openModal()} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '14px 24px', backgroundColor: colors.primary, color: '#fff', border: 'none', borderRadius: '14px', cursor: 'pointer', fontWeight: '700', boxShadow: `0 8px 20px ${colors.primary}40` }}>
             <Plus size={20} strokeWidth={3} /> Tambah Jadwal
           </button>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: colors.textMuted }}>
-            <Filter size={16} />
-            <span style={{ fontSize: '12px', fontWeight: '800' }}>FILTER :</span>
+        {/* CONTAINER FILTER BARU */}
+        <div style={styles.filterContainer}>
+          <div>
+            <div style={styles.labelFilter}>PILIH KELAS</div>
+            <div style={{ position: 'relative' }}>
+              <LayoutGrid size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
+              <select 
+                value={filterKelas}
+                onChange={(e) => setFilterKelas(e.target.value)}
+                style={styles.filterDropdown}
+              >
+                <option value="">Semua Kelas</option>
+                {daftarKelas.map((k) => (
+                  <option key={k.id} value={k.id}>{k.nama_kelas} ({k.jenjang})</option>
+                ))}
+              </select>
+              <ChevronDown size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
+            </div>
           </div>
 
-          <div style={{ position: 'relative', width: '220px' }}>
-            <LayoutGrid size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
-            <select 
-              value={filterKelas}
-              onChange={(e) => setFilterKelas(e.target.value)}
-              style={styles.filterSelect}
-            >
-              <option value="">Semua Kelas</option>
-              {daftarKelas.map((k) => (
-                <option key={k.id} value={k.id}>{k.nama_kelas} ({k.jenjang})</option>
-              ))}
-            </select>
-            <ChevronDown size={14} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
+          <div>
+            <div style={styles.labelFilter}>PILIH HARI</div>
+            <div style={{ position: 'relative' }}>
+              <CalendarIcon size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
+              <select 
+                value={filterHari}
+                onChange={(e) => setFilterHari(e.target.value)}
+                style={styles.filterDropdown}
+              >
+                <option value="">Semua Hari</option>
+                {daftarHari.map((hari) => (
+                  <option key={hari} value={hari}>{hari}</option>
+                ))}
+              </select>
+              <ChevronDown size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
+            </div>
           </div>
 
-          <div style={{ position: 'relative', width: '180px' }}>
-            <CalendarIcon size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
-            <select 
-              value={filterHari}
-              onChange={(e) => setFilterHari(e.target.value)}
-              style={styles.filterSelect}
-            >
-              <option value="">Semua Hari</option>
-              {daftarHari.map((hari) => (
-                <option key={hari} value={hari}>{hari}</option>
-              ))}
-            </select>
-            <ChevronDown size={14} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
+          <div>
+            <div style={styles.labelFilter}>GURU PENGAMPU</div>
+            <div style={{ position: 'relative' }}>
+              <User size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
+              <select 
+                value={filterGuru}
+                onChange={(e) => setFilterGuru(e.target.value)}
+                style={styles.filterDropdown}
+              >
+                <option value="">Semua Guru</option>
+                {daftarGuru.map((guru) => (
+                  <option key={guru.id} value={guru.id}>{guru.nama}</option>
+                ))}
+              </select>
+              <ChevronDown size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
+            </div>
           </div>
 
-          {(filterKelas || filterHari) && (
-            <button 
-              onClick={() => { setFilterKelas(''); setFilterHari(''); }}
-              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '8px 14px', borderRadius: '8px', border: 'none', backgroundColor: '#EF444415', color: '#EF4444', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
-            >
-              <X size={14} /> Reset
-            </button>
+          {(filterKelas || filterHari || filterGuru) && (
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <button 
+                onClick={() => { setFilterKelas(''); setFilterHari(''); setFilterGuru(''); }}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '12px', width: '100%', borderRadius: '12px', border: '1px solid #EF444450', backgroundColor: '#EF444410', color: '#EF4444', fontSize: '13px', fontWeight: '700', cursor: 'pointer', transition: '0.2s' }}
+              >
+                <X size={16} /> Reset Filter
+              </button>
+            </div>
           )}
         </div>
 
         <div style={styles.card}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
               <thead>
                 <tr style={styles.tableHeader}>
                   <th style={{ padding: '20px 24px', textAlign: 'left' }}>KELAS</th>
+                  <th style={{ padding: '20px 24px', textAlign: 'left' }}>MATA PELAJARAN</th>
                   <th style={{ padding: '20px 24px', textAlign: 'left' }}>HARI & WAKTU</th>
                   <th style={{ padding: '20px 24px', textAlign: 'left' }}>GURU PENGAMPU</th>
                   <th style={{ padding: '20px 24px', textAlign: 'center' }}>AKSI</th>
@@ -357,6 +398,14 @@ const AdminJadwal = () => {
                         {getLabel(daftarKelas, j.classId, 'kelas')}
                       </td>
                       <td style={{ padding: '20px 24px', color: colors.textPrimary }}>
+                        <div style={{ fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                           <div style={{ padding: '6px', backgroundColor: colors.primary + '15', borderRadius: '8px' }}>
+                             <BookOpen size={14} color={colors.primary} />
+                           </div>
+                           {j.mapel || '-'}
+                        </div>
+                      </td>
+                      <td style={{ padding: '20px 24px', color: colors.textPrimary }}>
                         <div style={{ fontWeight: '800', display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <CalendarIcon size={14} color={colors.primary}/> {j.hari}
                         </div>
@@ -364,22 +413,22 @@ const AdminJadwal = () => {
                           <Clock size={12}/> {j.jamMulai} - {j.jamSelesai}
                         </div>
                       </td>
-                      <td style={{ padding: '20px 24px', color: colors.textMuted, fontWeight: '500' }}>
+                      <td style={{ padding: '20px 24px', color: colors.textMuted, fontWeight: '600' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <div style={{ padding: '6px', backgroundColor: colors.border, borderRadius: '8px' }}><User size={14}/></div>
                               {getLabel(daftarGuru, j.teacherId)}
                           </div>
                       </td>
                       <td style={{ padding: '20px 24px', textAlign: 'center' }}>
-                        <button onClick={() => openModal(j)} style={{ padding: '8px', borderRadius: '10px', backgroundColor: '#3B82F615', border: 'none', color: '#3B82F6', marginRight: '8px', cursor: 'pointer' }}><Edit size={18} /></button>
-                        <button onClick={() => handleDeleteClick(j.id)} style={{ padding: '8px', borderRadius: '10px', backgroundColor: '#EF444415', border: 'none', color: '#EF4444', cursor: 'pointer' }}><Trash2 size={18} /></button>
+                        <button onClick={() => openModal(j)} style={{ padding: '8px 12px', borderRadius: '10px', backgroundColor: '#3B82F615', border: 'none', color: '#3B82F6', marginRight: '8px', cursor: 'pointer' }}><Edit size={18} /></button>
+                        <button onClick={() => handleDeleteClick(j.id)} style={{ padding: '8px 12px', borderRadius: '10px', backgroundColor: '#EF444415', border: 'none', color: '#EF4444', cursor: 'pointer' }}><Trash2 size={18} /></button>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="4" style={{ padding: '30px', textAlign: 'center', color: colors.textMuted }}>
-                      {filterKelas || filterHari ? 'Jadwal tidak ditemukan untuk filter tersebut.' : 'Belum ada data jadwal.'}
+                    <td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: colors.textMuted, fontWeight: '600' }}>
+                      {filterKelas || filterHari || filterGuru ? 'Jadwal tidak ditemukan untuk filter tersebut.' : 'Belum ada data jadwal.'}
                     </td>
                   </tr>
                 )}
@@ -389,7 +438,7 @@ const AdminJadwal = () => {
 
           {totalPages > 1 && (
             <div style={styles.paginationContainer}>
-              <span style={{ fontSize: '13px', color: colors.textMuted }}>
+              <span style={{ fontSize: '13px', color: colors.textMuted, fontWeight: '600' }}>
                 Menampilkan {indexOfFirstItem + 1}-{Math.min(indexOfLastItem, filteredJadwal.length)} dari {filteredJadwal.length} jadwal
               </span>
               <div style={{ display: 'flex', gap: '5px' }}>
@@ -441,6 +490,28 @@ const AdminJadwal = () => {
                   <select style={styles.select} value={formData.classId} onChange={(e) => handleKelasChange(e.target.value)} required>
                     <option value="">-- Pilih Kelas --</option>
                     {daftarKelas.map(k => <option key={k.id} value={k.id}>{k.nama_kelas} ({k.jenjang})</option>)}
+                  </select>
+                  <ChevronDown size={18} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ fontSize: '11px', fontWeight: '800', color: colors.textMuted, letterSpacing: '1px' }}>MATA PELAJARAN</label>
+                <div style={{ position: 'relative' }}>
+                  <BookOpen size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
+                  <select 
+                    style={formData.classId ? styles.select : styles.selectDisabled} 
+                    value={formData.mapel} 
+                    onChange={(e) => setFormData({...formData, mapel: e.target.value})} 
+                    required 
+                    disabled={!formData.classId}
+                  >
+                    <option value="">
+                      {!formData.classId ? 'Pilih Kelas Terlebih Dahulu' : (mapelTersediaDiKelas.length === 0 ? 'Belum Ada Mapel di Kelas Ini' : '-- Pilih Mata Pelajaran --')}
+                    </option>
+                    {mapelTersediaDiKelas.map(m => (
+                      <option key={m.id} value={m.nama}>{m.nama}</option>
+                    ))}
                   </select>
                   <ChevronDown size={18} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
                 </div>

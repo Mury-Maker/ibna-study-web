@@ -4,7 +4,7 @@ import { ref, onValue, update, push, get } from 'firebase/database';
 import { 
   CheckCircle, Clock, Eye, X, CreditCard, CalendarDays, 
   TrendingUp, DollarSign, Download, ChevronLeft, ChevronRight,
-  AlertCircle, AlertTriangle, XCircle, Search 
+  AlertCircle, AlertTriangle, XCircle, Search, ChevronDown
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import AdminLayout from '../../layouts/AdminLayout';
@@ -37,7 +37,6 @@ const AdminVerifikasiPembayaran = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
 
-  // Fungsi Pemicu Notifikasi Melayang (Toast)
   const pemicuNotif = (message, type = 'success') => {
     setNotif({ show: true, message, type });
     setTimeout(() => {
@@ -45,7 +44,6 @@ const AdminVerifikasiPembayaran = () => {
     }, 4000);
   };
 
-  // Fungsi Parser Waktu Aman
   const parseTime = (val) => {
     if (!val) return 0;
     if (typeof val === 'number') return val;
@@ -79,7 +77,6 @@ const AdminVerifikasiPembayaran = () => {
               else if (namaKelas.includes('SD')) jenjangOtomatis = 'SD';
             }
 
-            // Ambil Nama Siswa
             let namaSiswaFix = pembayaran.nama_siswa || pembayaran.nama_user || pendaftaranData.nama_siswa || pendaftaranData.nama_user || null;
             if (!namaSiswaFix && pembayaran.userId) {
                 const userSnap = await get(ref(db, `Users/${pembayaran.userId}`));
@@ -115,14 +112,12 @@ const AdminVerifikasiPembayaran = () => {
               timestamp: timestamp, 
               isVerified: isVerified,
               isRejected: isRejected,
-              // === TAMBAHAN: Ambil classId & packageId/paketId ===
               classId: pembayaran.classId || pendaftaranData.classId || '',
               paketId: pembayaran.paketId || pendaftaranData.paketId || pembayaran.packageId || pendaftaranData.packageId || ''
             };
           })
         );
 
-        // LOGIKA DEDUPLIKASI CERDAS
         const uniqueData = new Map();
         
         list.forEach(item => {
@@ -201,7 +196,6 @@ const AdminVerifikasiPembayaran = () => {
   
   const totalTransaksiSukses = filteredData.filter(item => !item.isRejected).length;
 
-  // ================= DOWNLOAD PDF =================
   const handleDownloadPDF = () => {
     const dataForPdf = filteredData.filter(item => !item.isRejected);
 
@@ -282,7 +276,6 @@ const AdminVerifikasiPembayaran = () => {
     doc.save(`Laporan_Keuangan_IbnaStudy_${new Date().getTime()}.pdf`);
   };
 
-  // ================= FUNGSI VERIFIKASI (APPROVE) DENGAN NOTIFIKASI =================
   const executeApprove = async () => {
     setIsLoadingProcess(true);
     try {
@@ -307,9 +300,8 @@ const AdminVerifikasiPembayaran = () => {
           noHpOrtu: data.noHpOrtu,
           nama_kelas: data.nama_kelas,
           jenjang: data.jenjang,
-          // === TAMBAHAN: Assign classId & packageId dari data PendaftaranLes ===
           classId: data.classId || '',
-          packageId: data.paketId || '', // Menggunakan packageId (sebutan standar tabel Anda)
+          packageId: data.paketId || '', 
           status: "Aktif",
           tanggal_bergabung: isoString
         };
@@ -318,7 +310,6 @@ const AdminVerifikasiPembayaran = () => {
         }
       }
 
-      // Logika Tambah Notifikasi ke Firebase
       const tanggalFormat = now.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
       const waktuFormat = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
       const notifKey = push(ref(db, 'Notifications')).key;
@@ -343,7 +334,6 @@ const AdminVerifikasiPembayaran = () => {
     }
   };
 
-  // ================= FUNGSI TOLAK (REJECT) DENGAN NOTIFIKASI =================
   const executeReject = async () => {
     if (!rejectModal.reason || rejectModal.reason.trim() === '') {
       pemicuNotif("Alasan penolakan wajib diisi!", "error");
@@ -364,7 +354,6 @@ const AdminVerifikasiPembayaran = () => {
         updates[`PendaftaranLes/${data.pendaftaranId}/catatan_admin`] = rejectModal.reason;
       }
       
-      // Logika Tambah Notifikasi ke Firebase
       const tanggalFormat = now.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
       const waktuFormat = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
       const notifKey = push(ref(db, 'Notifications')).key;
@@ -390,13 +379,40 @@ const AdminVerifikasiPembayaran = () => {
   };
 
   const styles = {
-    statusToggle: { display: 'inline-flex', backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', padding: '4px', borderRadius: '12px', border: `1px solid ${colors.border}` },
-    tabBtn: (active) => ({ padding: '8px 20px', cursor: 'pointer', backgroundColor: active ? colors.primary : 'transparent', color: active ? '#fff' : colors.textMuted, border: 'none', borderRadius: '10px', fontWeight: '700', fontSize: '13px', transition: '0.3s' }),
-    pillBtn: (active) => ({ padding: '8px 18px', cursor: 'pointer', backgroundColor: active ? colors.primary + '15' : 'transparent', color: active ? colors.primary : colors.textMuted, border: `1.5px solid ${active ? colors.primary : colors.border}`, borderRadius: '50px', fontWeight: '600', fontSize: '12px', transition: '0.2s' }),
-    badge: (jenis) => ({ padding: '4px 10px', borderRadius: '8px', fontSize: '10px', fontWeight: '800', backgroundColor: jenis === 'bulanan' ? '#F59E0B15' : '#3B82F615', color: jenis === 'bulanan' ? '#F59E0B' : '#3B82F6', display: 'flex', alignItems: 'center', gap: '5px', textTransform: 'uppercase' }),
-    card: { backgroundColor: colors.cardBg, borderRadius: '20px', border: `1px solid ${colors.border}`, padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' },
-    dateInput: { padding: '8px 14px', borderRadius: '10px', border: `1.5px solid ${colors.border}`, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : '#f9fafb', color: colors.textPrimary, fontSize: '12px', fontWeight: '600', outline: 'none' },
-    searchInput: { width: '100%', padding: '10px 14px 10px 36px', borderRadius: '10px', border: `1.5px solid ${colors.border}`, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : '#f9fafb', color: colors.textPrimary, fontSize: '13px', fontWeight: '500', outline: 'none', boxSizing: 'border-box' },
+    statusToggle: { display: 'inline-flex', backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', padding: '4px', borderRadius: '14px', border: `1px solid ${colors.border}` },
+    tabBtn: (active) => ({ padding: '10px 24px', cursor: 'pointer', backgroundColor: active ? colors.primary : 'transparent', color: active ? '#fff' : colors.textMuted, border: 'none', borderRadius: '10px', fontWeight: '700', fontSize: '13px', transition: '0.3s' }),
+    badge: (jenis) => ({ padding: '6px 12px', borderRadius: '8px', fontSize: '11px', fontWeight: '800', backgroundColor: jenis === 'bulanan' ? '#F59E0B15' : '#3B82F615', color: jenis === 'bulanan' ? '#F59E0B' : '#3B82F6', display: 'flex', alignItems: 'center', gap: '6px', textTransform: 'uppercase' }),
+    card: { backgroundColor: colors.cardBg, borderRadius: '24px', border: `1px solid ${colors.border}`, padding: '24px', boxShadow: '0 4px 25px rgba(0,0,0,0.02)' },
+    
+    // --- STYLING BARU UNTUK INPUT DAN DROPDOWN ---
+    searchInput: { 
+      width: '100%', padding: '12px 16px 12px 42px', borderRadius: '12px', 
+      border: `1px solid ${colors.border}`, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#fff', 
+      color: colors.textPrimary, fontSize: '13px', fontWeight: '500', outline: 'none', boxSizing: 'border-box',
+      boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
+    },
+    filterDropdown: { 
+      width: '100%', padding: '12px 36px 12px 16px', borderRadius: '12px', 
+      border: `1px solid ${colors.border}`, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#fff', 
+      color: colors.textPrimary, fontSize: '13px', fontWeight: '600', appearance: 'none', cursor: 'pointer', outline: 'none',
+      boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
+    },
+    dateInput: { 
+      width: '100%', padding: '12px 14px', borderRadius: '12px', 
+      border: `1px solid ${colors.border}`, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#fff', 
+      color: colors.textPrimary, fontSize: '13px', fontWeight: '600', outline: 'none',
+      boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
+    },
+    filterContainer: {
+      marginTop: '25px', padding: '20px', 
+      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.015)' : '#f8fafc', 
+      borderRadius: '16px', border: `1px solid ${colors.border}`,
+      display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px'
+    },
+    labelFilter: {
+      fontSize: '11px', fontWeight: '800', color: colors.textMuted, marginBottom: '8px', letterSpacing: '0.5px'
+    },
+
     toastNotification: (type) => ({
       position: 'fixed', top: '20px', right: '20px',
       backgroundColor: type === 'success' ? '#10B981' : '#EF4444',
@@ -480,7 +496,7 @@ const AdminVerifikasiPembayaran = () => {
                 backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#f9fafb',
                 color: colors.textPrimary, resize: 'none', height: '100px',
                 boxSizing: 'border-box', marginBottom: '20px', fontFamily: 'inherit',
-                fontSize: '14px'
+                fontSize: '14px', outline: 'none'
               }}
             />
 
@@ -498,12 +514,12 @@ const AdminVerifikasiPembayaran = () => {
 
       <div style={{ padding: '24px' }}>
         
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px', flexWrap: 'wrap', gap: '15px' }}>
           <div>
             <h2 style={{ color: colors.textPrimary, fontWeight: '900', fontSize: '26px', margin: 0 }}>
               {activeTab === 'pending' ? 'Verifikasi Pembayaran' : 'Laporan Keuangan'}
             </h2>
-            <p style={{ color: colors.textMuted, marginTop: '4px' }}>
+            <p style={{ color: colors.textMuted, marginTop: '6px', fontSize: '15px' }}>
               {activeTab === 'pending' ? 'Pantau dan validasi bukti transaksi masuk' : 'Rekapitulasi pendapatan berdasarkan transaksi yang disetujui'}
             </p>
           </div>
@@ -511,7 +527,7 @@ const AdminVerifikasiPembayaran = () => {
           {activeTab === 'verified' && (
             <button 
               onClick={handleDownloadPDF}
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', backgroundColor: colors.primary, color: '#fff', border: 'none', borderRadius: '14px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '14px 24px', backgroundColor: colors.primary, color: '#fff', border: 'none', borderRadius: '14px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 6px 15px rgba(0,0,0,0.1)' }}
             >
               <Download size={18} /> Unduh Laporan PDF
             </button>
@@ -546,9 +562,9 @@ const AdminVerifikasiPembayaran = () => {
           </div>
         )}
 
-        <div style={{ ...styles.card, marginBottom: '25px', padding: '20px' }}>
+        <div style={{ ...styles.card, marginBottom: '25px' }}>
           
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '20px' }}>
             <div style={styles.statusToggle}>
               <button style={styles.tabBtn(activeTab === 'pending')} onClick={() => setActiveTab('pending')}>
                 <Clock size={16} style={{marginRight: '8px', verticalAlign: 'middle'}}/> Menunggu
@@ -558,8 +574,8 @@ const AdminVerifikasiPembayaran = () => {
               </button>
             </div>
 
-            <div style={{ position: 'relative', width: '250px' }}>
-              <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted }} />
+            <div style={{ position: 'relative', flex: '1 1 250px', maxWidth: '350px' }}>
+              <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted }} />
               <input 
                 type="text" 
                 placeholder="Cari nama siswa..." 
@@ -571,39 +587,39 @@ const AdminVerifikasiPembayaran = () => {
           </div>
 
           {activeTab === 'verified' && (
-            <div style={{ 
-              marginTop: '20px', 
-              paddingTop: '20px', 
-              borderTop: `1px dashed ${colors.border}`, 
-              display: 'flex', 
-              flexWrap: 'wrap', 
-              gap: '30px'
-            }}>
+            <div style={styles.filterContainer}>
               
               <div>
-                <div style={{ fontSize: '11px', fontWeight: '800', color: colors.textMuted, marginBottom: '10px', letterSpacing: '0.5px' }}>JENIS TRANSAKSI</div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {['semua', 'pendaftaran', 'bulanan'].map(j => (
-                    <button key={j} style={styles.pillBtn(filterJenis === j)} onClick={() => setFilterJenis(j)}>{j.toUpperCase()}</button>
-                  ))}
+                <div style={styles.labelFilter}>JENIS TRANSAKSI</div>
+                <div style={{ position: 'relative' }}>
+                  <select value={filterJenis} onChange={(e) => setFilterJenis(e.target.value)} style={styles.filterDropdown}>
+                    <option value="semua">Semua Transaksi</option>
+                    <option value="pendaftaran">Pendaftaran</option>
+                    <option value="bulanan">Bulanan</option>
+                  </select>
+                  <ChevronDown size={16} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
                 </div>
               </div>
 
               <div>
-                <div style={{ fontSize: '11px', fontWeight: '800', color: colors.textMuted, marginBottom: '10px', letterSpacing: '0.5px' }}>JENJANG PENDIDIKAN</div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {['semua', 'SD', 'SMP', 'SMA'].map(j => (
-                    <button key={j} style={styles.pillBtn(filterJenjang === j)} onClick={() => setFilterJenjang(j)}>{j.toUpperCase()}</button>
-                  ))}
+                <div style={styles.labelFilter}>JENJANG PENDIDIKAN</div>
+                <div style={{ position: 'relative' }}>
+                  <select value={filterJenjang} onChange={(e) => setFilterJenjang(e.target.value)} style={styles.filterDropdown}>
+                    <option value="semua">Semua Jenjang</option>
+                    <option value="SD">SD</option>
+                    <option value="SMP">SMP</option>
+                    <option value="SMA">SMA</option>
+                  </select>
+                  <ChevronDown size={16} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
                 </div>
               </div>
 
               <div>
-                <div style={{ fontSize: '11px', fontWeight: '800', color: colors.textMuted, marginBottom: '10px', letterSpacing: '0.5px' }}>RENTANG TANGGAL</div>
+                <div style={styles.labelFilter}>RENTANG TANGGAL</div>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={styles.dateInput} />
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{...styles.dateInput, flex: 1}} />
                   <span style={{ color: colors.textMuted, fontWeight: 'bold' }}>-</span>
-                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={styles.dateInput} />
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{...styles.dateInput, flex: 1}} />
                 </div>
               </div>
 
@@ -611,65 +627,67 @@ const AdminVerifikasiPembayaran = () => {
           )}
         </div>
 
-        <div style={{ backgroundColor: colors.cardBg, borderRadius: '20px', border: `1px solid ${colors.border}`, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)', borderBottom: `2px solid ${colors.border}`, color: colors.textMuted, fontSize: '11px', textAlign: 'left', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                <th style={{ padding: '20px' }}>Informasi Siswa</th>
-                <th style={{ padding: '20px' }}>Kategori / Jenjang</th>
-                <th style={{ padding: '20px' }}>Paket / Bulan</th>
-                <th style={{ padding: '20px', textAlign: 'right' }}>Nominal</th>
-                <th style={{ padding: '20px', textAlign: 'center' }}>Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {currentItems.length > 0 ? currentItems.map((item) => (
-                <tr key={item.id} style={{ borderBottom: `1px solid ${colors.border}`, transition: '0.3s' }}>
-                  <td style={{ padding: '20px' }}>
-                    <div style={{ fontWeight: '800', color: colors.textPrimary, fontSize: '15px' }}>{item.nama_siswa}</div>
-                    <div style={{ fontSize: '12px', color: colors.textMuted, marginTop: '4px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                      <CalendarDays size={12}/> {new Date(item.timestamp).toLocaleDateString('id-ID', { dateStyle: 'medium' })}
-                    </div>
-                  </td>
-                  <td style={{ padding: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={styles.badge(item.jenis)}>
-                        {item.jenis === 'bulanan' ? <CalendarDays size={12} /> : <CreditCard size={12} />} {item.jenis}
+        <div style={{ backgroundColor: colors.cardBg, borderRadius: '24px', border: `1px solid ${colors.border}`, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
+              <thead>
+                <tr style={{ backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)', borderBottom: `2px solid ${colors.border}`, color: colors.textMuted, fontSize: '11px', textAlign: 'left', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  <th style={{ padding: '20px 24px' }}>Informasi Siswa</th>
+                  <th style={{ padding: '20px 24px' }}>Kategori / Jenjang</th>
+                  <th style={{ padding: '20px 24px' }}>Paket / Bulan</th>
+                  <th style={{ padding: '20px 24px', textAlign: 'right' }}>Nominal</th>
+                  <th style={{ padding: '20px 24px', textAlign: 'center' }}>Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {currentItems.length > 0 ? currentItems.map((item) => (
+                  <tr key={item.id} style={{ borderBottom: `1px solid ${colors.border}`, transition: '0.3s' }}>
+                    <td style={{ padding: '20px 24px' }}>
+                      <div style={{ fontWeight: '800', color: colors.textPrimary, fontSize: '15px' }}>{item.nama_siswa}</div>
+                      <div style={{ fontSize: '12px', color: colors.textMuted, marginTop: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <CalendarDays size={14}/> {new Date(item.timestamp).toLocaleDateString('id-ID', { dateStyle: 'medium' })}
                       </div>
-                      <span style={{ fontSize: '12px', fontWeight: '800', color: colors.primary }}>{item.jenjang}</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: '20px', color: colors.textPrimary }}>
-                    {item.jenis === 'bulanan' ? (
-                        <div style={{ fontWeight: '800', color: colors.primary }}>{(item.bulan_dibayar || '').toUpperCase()}</div>
-                    ) : (
-                        <div style={{ fontWeight: '700' }}>{item.nama_paket}</div>
-                    )}
-                  </td>
-                  <td style={{ padding: '20px', fontWeight: '900', fontSize: '16px', textAlign: 'right' }}>
-                    <div style={{ color: item.isRejected ? '#EF4444' : '#10B981' }}>
-                      Rp {Number(item.jumlah_pembayaran || 0).toLocaleString('id-ID')}
-                    </div>
-                    {item.isRejected && (
-                      <div style={{ fontSize: '11px', color: '#EF4444', marginTop: '4px', fontWeight: '800' }}>DITOLAK</div>
-                    )}
-                  </td>
-                  <td style={{ padding: '20px', textAlign: 'center' }}>
-                    <button 
-                      onClick={() => { setSelectedData(item); setIsModalOpen(true); }} 
-                      style={{ padding: '10px', backgroundColor: colors.primary + '10', color: colors.primary, border: 'none', borderRadius: '12px', cursor: 'pointer' }}
-                    >
-                      <Eye size={20} />
-                    </button>
-                  </td>
-                </tr>
-              )) : (
-                <tr>
-                  <td colSpan="5" style={{ padding: '60px', textAlign: 'center', color: colors.textMuted, fontWeight: '600' }}>Data tidak ditemukan</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    </td>
+                    <td style={{ padding: '20px 24px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={styles.badge(item.jenis)}>
+                          {item.jenis === 'bulanan' ? <CalendarDays size={12} /> : <CreditCard size={12} />} {item.jenis}
+                        </div>
+                        <span style={{ fontSize: '13px', fontWeight: '800', color: colors.primary }}>{item.jenjang}</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: '20px 24px', color: colors.textPrimary }}>
+                      {item.jenis === 'bulanan' ? (
+                          <div style={{ fontWeight: '800', color: colors.primary }}>{(item.bulan_dibayar || '').toUpperCase()}</div>
+                      ) : (
+                          <div style={{ fontWeight: '700', fontSize: '14px' }}>{item.nama_paket}</div>
+                      )}
+                    </td>
+                    <td style={{ padding: '20px 24px', fontWeight: '900', fontSize: '16px', textAlign: 'right' }}>
+                      <div style={{ color: item.isRejected ? '#EF4444' : '#10B981' }}>
+                        Rp {Number(item.jumlah_pembayaran || 0).toLocaleString('id-ID')}
+                      </div>
+                      {item.isRejected && (
+                        <div style={{ fontSize: '11px', color: '#EF4444', marginTop: '4px', fontWeight: '800' }}>DITOLAK</div>
+                      )}
+                    </td>
+                    <td style={{ padding: '20px 24px', textAlign: 'center' }}>
+                      <button 
+                        onClick={() => { setSelectedData(item); setIsModalOpen(true); }} 
+                        style={{ padding: '10px 14px', backgroundColor: colors.primary + '10', color: colors.primary, border: 'none', borderRadius: '12px', cursor: 'pointer', transition: '0.2s' }}
+                      >
+                        <Eye size={20} />
+                      </button>
+                    </td>
+                  </tr>
+                )) : (
+                  <tr>
+                    <td colSpan="5" style={{ padding: '60px', textAlign: 'center', color: colors.textMuted, fontWeight: '600' }}>Data tidak ditemukan</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
           {filteredData.length > itemsPerPage && (
             <div style={{ padding: '20px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '15px', borderTop: `1px solid ${colors.border}` }}>
@@ -691,7 +709,8 @@ const AdminVerifikasiPembayaran = () => {
             maxWidth: selectedData.jenis === 'bulanan' ? '450px' : '750px', 
             border: `1px solid ${colors.border}`, 
             maxHeight: '90vh', 
-            overflowY: 'auto' 
+            overflowY: 'auto',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.2)'
           }}>
             
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px', alignItems: 'flex-start' }}>
@@ -763,7 +782,7 @@ const AdminVerifikasiPembayaran = () => {
                   <button 
                     onClick={() => window.open(selectedData.bukti_pembayaran || selectedData.foto_bukti || selectedData.url_bukti, '_blank')}
                     disabled={!(selectedData.bukti_pembayaran || selectedData.foto_bukti || selectedData.url_bukti)}
-                    style={{ width: '100%', marginTop: '12px', padding: '10px', backgroundColor: colors.primary + '10', color: colors.primary, border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '12px', cursor: (selectedData.bukti_pembayaran || selectedData.foto_bukti || selectedData.url_bukti) ? 'pointer' : 'not-allowed', opacity: (selectedData.bukti_pembayaran || selectedData.foto_bukti || selectedData.url_bukti) ? 1 : 0.5 }}
+                    style={{ width: '100%', marginTop: '12px', padding: '12px', backgroundColor: colors.primary + '10', color: colors.primary, border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: (selectedData.bukti_pembayaran || selectedData.foto_bukti || selectedData.url_bukti) ? 'pointer' : 'not-allowed', opacity: (selectedData.bukti_pembayaran || selectedData.foto_bukti || selectedData.url_bukti) ? 1 : 0.5 }}
                   >
                     Buka Gambar Penuh
                   </button>
@@ -788,14 +807,14 @@ const AdminVerifikasiPembayaran = () => {
                   <button 
                     disabled={isLoadingProcess}
                     onClick={() => setRejectModal({ show: true, data: selectedData, reason: '' })} 
-                    style={{ flex: 1, padding: '18px', backgroundColor: 'transparent', color: '#EF4444', border: '2px solid #EF4444', borderRadius: '18px', cursor: isLoadingProcess ? 'not-allowed' : 'pointer', fontWeight: '900', fontSize: '14px', opacity: isLoadingProcess ? 0.5 : 1 }}
+                    style={{ flex: 1, padding: '16px', backgroundColor: 'transparent', color: '#EF4444', border: '2px solid #EF4444', borderRadius: '16px', cursor: isLoadingProcess ? 'not-allowed' : 'pointer', fontWeight: '900', fontSize: '14px', opacity: isLoadingProcess ? 0.5 : 1 }}
                   >
                     TOLAK BUKTI
                   </button>
                   <button 
                     disabled={isLoadingProcess}
                     onClick={() => setApproveModal({ show: true, data: selectedData })} 
-                    style={{ flex: 1.5, padding: '18px', backgroundColor: '#10B981', color: '#fff', border: 'none', borderRadius: '18px', cursor: isLoadingProcess ? 'not-allowed' : 'pointer', fontWeight: '900', fontSize: '14px', boxShadow: isLoadingProcess ? 'none' : '0 8px 20px rgba(16, 185, 129, 0.3)', opacity: isLoadingProcess ? 0.5 : 1 }}
+                    style={{ flex: 1.5, padding: '16px', backgroundColor: '#10B981', color: '#fff', border: 'none', borderRadius: '16px', cursor: isLoadingProcess ? 'not-allowed' : 'pointer', fontWeight: '900', fontSize: '14px', boxShadow: isLoadingProcess ? 'none' : '0 8px 20px rgba(16, 185, 129, 0.3)', opacity: isLoadingProcess ? 0.5 : 1 }}
                   >
                     VERIFIKASI & TERIMA
                   </button>
