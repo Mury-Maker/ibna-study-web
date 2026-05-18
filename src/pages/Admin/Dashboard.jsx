@@ -11,7 +11,7 @@ import {
 import { 
   LineChart, Line, BarChart, Bar, 
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend,
-  PieChart, Pie, Cell // TAMBAHAN UNTUK PIE CHART
+  PieChart, Pie, Cell 
 } from 'recharts';
 
 const DashboardAdmin = () => {
@@ -27,7 +27,7 @@ const DashboardAdmin = () => {
   // State Grafik
   const [dataUserBaru, setDataUserBaru] = useState([]);
   const [dataPembayaranMingguan, setDataPembayaranMingguan] = useState([]);
-  const [dataJenjangSiswa, setDataJenjangSiswa] = useState([]); // STATE BARU UNTUK JENJANG
+  const [dataJenjangSiswa, setDataJenjangSiswa] = useState([]); 
   
   // State Pendapatan
   const [totalUangPendaftaran, setTotalUangPendaftaran] = useState(0);
@@ -35,12 +35,8 @@ const DashboardAdmin = () => {
   
   const [historiPembayaran, setHistoriPembayaran] = useState([]);
 
-  // State Modal Detail
-  const [selectedData, setSelectedData] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
   // Warna Khusus untuk Jenjang Siswa
-  const JENJANG_COLORS = ['#EF4444', '#3B82F6', '#8B5CF6']; // Merah (SD), Biru (SMP), Ungu (SMA)
+  const JENJANG_COLORS = ['#EF4444', '#3B82F6', '#8B5CF6']; 
 
   useEffect(() => {
     // 1. Ambil Data Users
@@ -73,7 +69,7 @@ const DashboardAdmin = () => {
       }
     });
 
-    // 2. Ambil Data Siswa (Termasuk perhitungan Jenjang)
+    // 2. Ambil Data Siswa
     const siswaRef = ref(db, 'Siswa');
     const unsubSiswa = onValue(siswaRef, (snapshot) => {
       const data = snapshot.val();
@@ -81,7 +77,6 @@ const DashboardAdmin = () => {
         const listSiswa = Object.values(data);
         setTotalSiswa(listSiswa.length);
 
-        // Hitung Jenjang
         let sd = 0, smp = 0, sma = 0;
         listSiswa.forEach(siswa => {
           const jenjang = String(siswa.jenjang || '').toUpperCase();
@@ -96,7 +91,7 @@ const DashboardAdmin = () => {
           { name: 'SD', value: sd },
           { name: 'SMP', value: smp },
           { name: 'SMA', value: sma }
-        ].filter(item => item.value > 0)); // Hanya tampilkan yang ada datanya
+        ].filter(item => item.value > 0)); 
 
       } else {
         setTotalSiswa(0);
@@ -112,6 +107,8 @@ const DashboardAdmin = () => {
         const rawList = Object.values(data);
         const pendSnap = await get(ref(db, 'PendaftaranLes'));
         const allPendaftaran = pendSnap.val() || {};
+        const siswaSnap = await get(ref(db, 'Siswa'));
+        const allSiswa = siswaSnap.val() || {};
 
         let tPendaftaran = 0;
         let tBulanan = 0;
@@ -121,24 +118,89 @@ const DashboardAdmin = () => {
           const date = new Date();
           date.setDate(date.getDate() - i);
           const labelDate = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
-          payStats[labelDate] = { name: labelDate, pendaftaran: 0, bulanan: 0 };
+          payStats[labelDate] = { name: labelDate, pendaftaran: 0, bulanan: 0, details: [] };
         }
 
+        // =========================================================================
+        // STEP 1: PENGELOMPOKKAN & SELEKSI KETAT DATA GANDA (DITERIMA VS DITOLAK)
+        // =========================================================================
+        const groupedByPendaftaran = {};
+
         rawList.forEach(pay => {
+          // Validasi data kotor dasar (harus berupa objek utuh & memiliki nominal/waktu)
+          if (!pay || typeof pay !== 'object' || Object.keys(pay).length <= 2) return;
+          const amount = Number(pay.jumlah_pembayaran) || Number(pay.nominal) || 0;
+          const hasTime = pay.tanggal_upload || pay.tanggal || pay.createdAt;
+          if (amount === 0 || !hasTime) return;
+
           let jenis = String(pay.jenis || 'pendaftaran').toLowerCase();
           if (jenis === 'pembayaran') jenis = 'pendaftaran';
 
-          let statusAsli = '';
-          if (jenis === 'pendaftaran' && pay.pendaftaranId && allPendaftaran[pay.pendaftaranId]) {
-            statusAsli = String(allPendaftaran[pay.pendaftaranId].status || '').toLowerCase();
-          } else {
-            statusAsli = String(pay.status || '').toLowerCase();
+          // Dapatkan status asli transaksi
+          let statusPay = String(pay.status || '').toLowerCase();
+          if (statusPay === '' && jenis === 'pendaftaran' && pay.pendaftaranId && allPendaftaran[pay.pendaftaranId]) {
+            statusPay = String(allPendaftaran[pay.pendaftaranId].status || '').toLowerCase();
           }
 
-          const isVerified = statusAsli === 'diterima' || statusAsli === 'lunas' || statusAsli === 'sukses' || statusAsli === '';
-          if (!isVerified) return;
+          // Simpan status bersih ke objek pay untuk mempermudah pengecekan berikutnya
+          pay.cleanStatus = statusPay;
+
+          // Jika ini kategori pendaftaran les dan memiliki pendaftaranId
+          if (jenis === 'pendaftaran' && pay.pendaftaranId) {
+            const pid = pay.pendaftaranId;
+
+            if (!groupedByPendaftaran[pid]) {
+              groupedByPendaftaran[pid] = [];
+            }
+            groupedByPendaftaran[pid].push(pay);
+          } else {
+            // Untuk pembayaran bulanan atau yang tidak memiliki pendaftaranId, buat key unik sendiri agar tidak bertabrakan
+            const uniqueId = pay.id || `BULANAN-${Math.random()}`;
+            groupedByPendaftaran[uniqueId] = [pay];
+          }
+        });
+
+        // =========================================================================
+        // STEP 2: AMBIL HANYA YANG DITERIMA JIKA ADA DATA DITOLAK PADA ID YANG SAMA
+        // =========================================================================
+        const verifiedPayments = [];
+
+        Object.values(groupedByPendaftaran).forEach(payments => {
+          // Cari apakah di dalam grup pendaftaran ID yang sama ini ada data yang berstatus sukses/diterima/lunas
+          const acceptedPay = payments.find(p => p.cleanStatus === 'diterima' || p.cleanStatus === 'lunas' || p.cleanStatus === 'sukses');
+
+          if (acceptedPay) {
+            // Jika ditemukan yang diterima, masukkan data yang diterima ini saja (Data ditolak otomatis dibuang)
+            verifiedPayments.push(acceptedPay);
+          } 
+          // Jika di grup tersebut tidak ada satu pun yang diterima (misal hanya ada satu data dan statusnya Ditolak),
+          // maka otomatis tidak dimasukkan ke verifiedPayments karena aturan Anda hanya memproses yang berstatus diterima.
+        });
+
+        // ====== PROSES DATA GRAFIK ======
+        verifiedPayments.forEach(pay => {
+          let jenis = String(pay.jenis || 'pendaftaran').toLowerCase();
+          if (jenis === 'pembayaran') jenis = 'pendaftaran';
 
           const amount = Number(pay.jumlah_pembayaran) || Number(pay.nominal) || 0;
+
+          let namaSiswa = 'Siswa Tidak Dikenal';
+          let jenjang = 'Lainnya';
+          let kelas = 'Lainnya';
+          
+          if (pay.pendaftaranId && allPendaftaran[pay.pendaftaranId]) {
+            namaSiswa = allPendaftaran[pay.pendaftaranId].nama_siswa || pay.nama_user || namaSiswa;
+            jenjang = allPendaftaran[pay.pendaftaranId].jenjang || jenjang;
+            kelas = allPendaftaran[pay.pendaftaranId].nama_kelas || allPendaftaran[pay.pendaftaranId].kelas || kelas;
+          } else if (pay.siswaId && allSiswa[pay.siswaId]) {
+            namaSiswa = allSiswa[pay.siswaId].nama_siswa || pay.nama_user || namaSiswa;
+            jenjang = allSiswa[pay.siswaId].jenjang || jenjang;
+            kelas = allSiswa[pay.siswaId].nama_kelas || allSiswa[pay.siswaId].kelas || kelas;
+          } else {
+            namaSiswa = pay.nama_user || pay.nama_siswa || namaSiswa;
+            jenjang = pay.jenjang || jenjang;
+            kelas = pay.nama_kelas || pay.kelas || kelas;
+          }
 
           if (jenis === 'bulanan') tBulanan += amount;
           else tPendaftaran += amount;
@@ -152,6 +214,13 @@ const DashboardAdmin = () => {
             if (payStats[labelDate]) {
               if (jenis === 'bulanan') payStats[labelDate].bulanan += amount;
               else payStats[labelDate].pendaftaran += amount;
+              
+              payStats[labelDate].details.push({
+                nama: namaSiswa,
+                kelas: `${String(jenjang).toUpperCase()} - ${String(kelas).toUpperCase()}`,
+                nominal: amount,
+                jenis: jenis
+              });
             }
           }
         });
@@ -160,21 +229,21 @@ const DashboardAdmin = () => {
         setTotalUangBulanan(tBulanan);
         setDataPembayaranMingguan(Object.values(payStats));
 
-        // Ambil 5 Transaksi Terbaru
-        const sortedRaw = rawList.sort((a, b) => {
+        // ====== PROSES DATA TABEL (Hanya menampilkan data yang lolos seleksi Diterima) ======
+        const sortedVerified = verifiedPayments.sort((a, b) => {
            const timeA = Number(a.tanggal_upload || a.tanggal || 0);
            const timeB = Number(b.tanggal_upload || b.tanggal || 0);
            return timeB - timeA;
         }).slice(0, 5); 
         
-        const detailedList = sortedRaw.map((pay) => {
-          let namaSiswa = 'User Tidak Dikenal';
+        const detailedList = sortedVerified.map((pay) => {
+          let nSiswa = 'Siswa Tidak Dikenal';
           if (pay.pendaftaranId && allPendaftaran[pay.pendaftaranId]) {
-            namaSiswa = allPendaftaran[pay.pendaftaranId].nama_siswa || pay.nama_user || namaSiswa;
+            nSiswa = allPendaftaran[pay.pendaftaranId].nama_siswa || pay.nama_user || nSiswa;
           } else if (pay.nama_user) {
-            namaSiswa = pay.nama_user;
+            nSiswa = pay.nama_user;
           }
-          return { ...pay, nama_siswa: namaSiswa };
+          return { ...pay, nama_siswa: nSiswa };
         });
         
         setHistoriPembayaran(detailedList);
@@ -195,6 +264,55 @@ const DashboardAdmin = () => {
     return tickItem;
   };
 
+  const CustomTooltipBar = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      return (
+        <div style={{ 
+          backgroundColor: colors.cardBg, 
+          border: `1px solid ${colors.border}`, 
+          borderRadius: '12px', 
+          padding: '15px', 
+          color: colors.textPrimary, 
+          boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
+          minWidth: '220px'
+        }}>
+          <div style={{ fontWeight: '900', marginBottom: '8px', borderBottom: `1px solid ${colors.border}`, paddingBottom: '6px', fontSize: '13px' }}>Tanggal {label}</div>
+          <div style={{ fontSize: '12px', color: colors.primary, fontWeight: '800', marginBottom: '4px' }}>Pendaftaran: Rp {data.pendaftaran.toLocaleString('id-ID')}</div>
+          <div style={{ fontSize: '12px', color: '#10B981', fontWeight: '800', marginBottom: '10px' }}>Bulanan: Rp {data.bulanan.toLocaleString('id-ID')}</div>
+          
+          {data.details && data.details.length > 0 && (
+            <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: `1px dashed ${colors.border}` }}>
+              <div style={{ fontSize: '10px', fontWeight: '900', color: colors.textMuted, marginBottom: '8px', textTransform: 'uppercase' }}>Detail Transaksi:</div>
+              {data.details.map((trx, idx) => (
+                 <div key={idx} style={{ 
+                   fontSize: '11px', 
+                   display: 'flex', 
+                   flexDirection: 'column', 
+                   marginBottom: '6px', 
+                   backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', 
+                   padding: '8px', 
+                   borderRadius: '6px' 
+                 }}>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '15px', alignItems: 'center' }}>
+                     <span style={{ fontWeight: '800' }}>{trx.nama}</span>
+                     <span style={{ fontWeight: '900', color: trx.jenis === 'bulanan' ? '#10B981' : colors.primary }}>
+                       Rp {trx.nominal.toLocaleString('id-ID')}
+                     </span>
+                   </div>
+                   <div style={{ fontSize: '10px', color: colors.textMuted, marginTop: '4px', fontWeight: '600' }}>
+                     {trx.kelas} • <span style={{ textTransform: 'capitalize'}}>{trx.jenis}</span>
+                   </div>
+                 </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+    return null;
+  };
+
   const styles = {
     container: { padding: '20px', width: '100%', boxSizing: 'border-box' },
     statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '25px' },
@@ -210,7 +328,7 @@ const DashboardAdmin = () => {
         {/* ---- KARTU STATISTIK ---- */}
         <div style={styles.statsGrid}>
           <div style={styles.card}>
-            <span style={styles.labelHeader}>TOTAL USER AKUN</span>
+            <span style={styles.labelHeader}>TOTAL PENGGUNA</span>
             <div style={{fontSize: '28px', fontWeight: '900'}}>
               {loading ? "..." : totalUsers} 
               {usersToday > 0 && <span style={{fontSize: '14px', color: '#10B981', marginLeft: '8px'}}>+{usersToday}</span>}
@@ -243,7 +361,7 @@ const DashboardAdmin = () => {
           </div>
         </div>
 
-        {/* ---- BAGIAN GRAFIK ATAS (Pendapatan & User Baru) ---- */}
+        {/* ---- BAGIAN GRAFIK ATAS ---- */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '25px', marginBottom: '25px' }}>
           
           <div style={styles.card}>
@@ -254,10 +372,7 @@ const DashboardAdmin = () => {
                   <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#334155' : '#e2e8f0'} vertical={false} />
                   <XAxis dataKey="name" stroke={colors.textMuted} fontSize={10} />
                   <YAxis stroke={colors.textMuted} fontSize={10} tickFormatter={formatYAxis} />
-                  <Tooltip 
-                    formatter={(value) => [`Rp ${value.toLocaleString('id-ID')}`]} 
-                    contentStyle={{ backgroundColor: colors.cardBg, border: `1px solid ${colors.border}`, borderRadius: '12px' }} 
-                  />
+                  <Tooltip content={<CustomTooltipBar />} cursor={{fill: isDarkMode ? '#334155' : '#f1f5f9'}} />
                   <Legend wrapperStyle={{ fontSize: '11px', marginTop: '10px' }} />
                   <Bar dataKey="pendaftaran" name="Pendaftaran" fill={colors.primary} radius={[4, 4, 0, 0]} />
                   <Bar dataKey="bulanan" name="Bulanan" fill="#10B981" radius={[4, 4, 0, 0]} />
@@ -340,7 +455,6 @@ const DashboardAdmin = () => {
                   <th style={{padding: '12px 8px'}}>KATEGORI</th>
                   <th style={{padding: '12px 8px'}}>WAKTU UPLOAD</th>
                   <th style={{padding: '12px 8px'}}>JUMLAH</th>
-                  <th style={{padding: '12px 8px', textAlign: 'center'}}>AKSI</th>
                 </tr>
               </thead>
               <tbody>
@@ -369,20 +483,12 @@ const DashboardAdmin = () => {
                         <td style={{padding: '15px 8px', fontWeight: '800', color: '#10B981'}}>
                             Rp {Number(row.jumlah_pembayaran || row.nominal || 0).toLocaleString('id-ID')}
                         </td>
-                        <td style={{padding: '15px 8px', textAlign: 'center'}}>
-                            <button 
-                              onClick={() => { setSelectedData(row); setIsModalOpen(true); }}
-                              style={{padding: '8px 12px', backgroundColor: colors.primary + '15', color: colors.primary, border: `1px solid ${colors.primary}50`, borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', margin: '0 auto', transition: 'all 0.2s ease'}}
-                            >
-                              <Eye size={14} /> <span style={{fontSize: '11px', fontWeight: '800'}}>CEK</span>
-                            </button>
-                        </td>
                       </tr>
                    );
                 })}
                 {historiPembayaran.length === 0 && (
                   <tr>
-                    <td colSpan="5" style={{ padding: '30px', textAlign: 'center', color: colors.textMuted, fontSize: '13px' }}>
+                    <td colSpan="4" style={{ padding: '30px', textAlign: 'center', color: colors.textMuted, fontSize: '13px' }}>
                       Belum ada transaksi pembayaran terbaru
                     </td>
                   </tr>
@@ -392,81 +498,6 @@ const DashboardAdmin = () => {
           </div>
         </div>
       </div>
-
-      {/* ---- MODAL DETAIL TRANSAKSI ---- */}
-      {isModalOpen && selectedData && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-          <div style={{ backgroundColor: colors.cardBg, padding: '32px', borderRadius: '28px', width: '100%', maxWidth: selectedData.foto_bukti ? '700px' : '450px', border: `1px solid ${colors.border}`, maxHeight: '90vh', overflowY: 'auto' }}>
-            
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px', alignItems: 'flex-start' }}>
-              <div>
-                <h3 style={{ margin: 0, color: colors.textPrimary, fontSize: '22px', fontWeight: '900' }}>Ringkasan Transaksi</h3>
-                <div style={{marginTop: '8px'}}>
-                  <span style={{ 
-                      padding: '4px 10px', borderRadius: '8px', fontSize: '10px', fontWeight: '800', textTransform: 'uppercase',
-                      backgroundColor: (selectedData.jenis === 'bulanan') ? '#10B98115' : colors.primary + '15',
-                      color: (selectedData.jenis === 'bulanan') ? '#10B981' : colors.primary 
-                  }}>
-                    KATEGORI: {selectedData.jenis || 'PENDAFTARAN'}
-                  </span>
-                </div>
-              </div>
-              <button onClick={() => setIsModalOpen(false)} style={{ background: 'rgba(0,0,0,0.05)', border: 'none', borderRadius: '50%', padding: '8px', cursor: 'pointer' }}>
-                <X size={24} color={colors.textMuted} />
-              </button>
-            </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: selectedData.foto_bukti ? '1.2fr 1fr' : '1fr', gap: '30px' }}>
-              
-              <div style={{ color: colors.textPrimary }}>
-                <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderRadius: '15px' }}>
-                    <label style={{ fontSize: '10px', fontWeight: '900', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '1px' }}>Nama Siswa</label>
-                    <p style={{ margin: '4px 0', fontSize: '18px', fontWeight: '800' }}>{selectedData.nama_siswa}</p>
-                </div>
-                
-                <div style={{ marginBottom: '20px' }}>
-                    <label style={{ fontSize: '10px', fontWeight: '900', color: colors.textMuted, textTransform: 'uppercase' }}>Tanggal Transaksi</label>
-                    <p style={{ margin: '4px 0', fontWeight: '700', fontSize: '15px' }}>
-                      {new Date(Number(selectedData.tanggal_upload || selectedData.tanggal || Date.now())).toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short' })}
-                    </p>
-                </div>
-
-                <div style={{ padding: '20px', backgroundColor: '#10B98108', borderRadius: '16px', border: '2px dashed #10B98150' }}>
-                    <label style={{ fontSize: '10px', fontWeight: '900', color: '#10B981', textTransform: 'uppercase' }}>Total Nominal</label>
-                    <p style={{ margin: '4px 0', fontWeight: '900', color: '#10B981', fontSize: '28px' }}>
-                      Rp {Number(selectedData.jumlah_pembayaran || selectedData.nominal || 0).toLocaleString('id-ID')}
-                    </p>
-                </div>
-              </div>
-
-              {selectedData.foto_bukti && (
-                <div>
-                  <label style={{ fontSize: '10px', fontWeight: '900', color: colors.textMuted, textTransform: 'uppercase', display: 'block', marginBottom: '10px' }}>Bukti Pembayaran</label>
-                  <div style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', border: `1px solid ${colors.border}`, backgroundColor: '#000' }}>
-                    <img 
-                      src={selectedData.foto_bukti} 
-                      alt="Bukti Transaksi" 
-                      style={{ width: '100%', height: '240px', objectFit: 'contain' }} 
-                      onError={(e) => { e.target.src = 'https://via.placeholder.com/300?text=Gambar+Gagal+Dimuat' }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div style={{ marginTop: '30px', display: 'flex', gap: '15px', justifyContent: 'flex-end' }}>
-              <button 
-                onClick={() => setIsModalOpen(false)} 
-                style={{ padding: '14px 24px', backgroundColor: 'transparent', color: colors.textMuted, border: `1px solid ${colors.border}`, borderRadius: '14px', cursor: 'pointer', fontWeight: '800', fontSize: '13px' }}
-              >
-                TUTUP
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
-
     </AdminLayout>
   );
 };
