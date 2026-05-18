@@ -363,7 +363,22 @@ const AdminGuru = () => {
                 <label style={{ fontSize: '11px', fontWeight: '800', color: colors.textMuted }}>NOMOR HP</label>
                 <div style={styles.inputWrapper}>
                   <Phone size={18} style={{ position: 'absolute', left: '12px', top: '18px', color: colors.textMuted }} />
-                  <input style={styles.input} type="tel" value={formData.noHp} onChange={(e) => setFormData({...formData, noHp: e.target.value})} placeholder="08xxxx" required />
+                  {/* UPDATE: Modifikasi validasi onchange max 12 digit ada di sini */}
+                  <input 
+                    style={styles.input} 
+                    type="tel" 
+                    value={formData.noHp} 
+                    onChange={(e) => {
+                      let value = e.target.value;
+                      if (value.length > 12) {
+                        pemicuNotif("No HP tidak boleh lebih dari 12 digit!", "error");
+                        value = value.slice(0, 12); // Memotong karakter agar tidak tembus dari 12 digit
+                      }
+                      setFormData({...formData, noHp: value});
+                    }} 
+                    placeholder="08xxxx" 
+                    required 
+                  />
                 </div>
               </div>
 
