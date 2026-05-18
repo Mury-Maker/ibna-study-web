@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { 
   User, LayoutDashboard, Calendar, Users, 
-  FileText, MessageSquare, PlusCircle, X, LogOut, ChevronDown, ChevronRight 
-} from 'lucide-react';
+  FileText, MessageSquare, X, LogOut, 
+  BookOpen, CreditCard, Layers, Smartphone 
+} from 'lucide-react'; // Menambahkan ikon yang lebih relevan
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext';
 import { auth, db } from '../../api/firebase';
@@ -15,7 +16,6 @@ const Sidebar = ({ isOpen, toggleSidebar, isMobile }) => {
   const location = useLocation();
   const { isDarkMode, colors } = useTheme();
   
-  const [isKelasOpen, setIsKelasOpen] = useState(false);
   const [daftarKelas, setDaftarKelas] = useState([]);
 
   useEffect(() => {
@@ -53,18 +53,9 @@ const Sidebar = ({ isOpen, toggleSidebar, isMobile }) => {
       borderRadius: '8px', cursor: 'pointer', transition: '0.2s',
       backgroundColor: isActive ? colors.primary : 'transparent',
       color: isActive ? '#FFF' : colors.textPrimary
-    }),
-    // FIX: subMenuItem disamakan stylenya agar konsisten
-    subMenuItem: (isActive) => ({
-      display: 'flex', alignItems: 'center', padding: '10px 16px 10px 48px', margin: '2px 12px',
-      borderRadius: '8px', cursor: 'pointer', fontSize: '13px', transition: '0.2s',
-      backgroundColor: isActive ? colors.primary : 'transparent',
-      color: isActive ? '#FFF' : colors.textMuted,
-      fontWeight: isActive ? '700' : '400'
     })
   };
 
-  // Helper NavLink dengan Ikon Kuning saat aktif
   const NavLink = ({ path, icon, name }) => {
     const isActive = location.pathname === path;
     return (
@@ -90,12 +81,15 @@ const Sidebar = ({ isOpen, toggleSidebar, isMobile }) => {
         <div style={{ flex: 1, overflowY: 'auto' }}>
           <NavLink path="/Admin/Profile" icon={<User size={20} />} name="Profile" />
           <NavLink path="/Admin/Dashboard" icon={<LayoutDashboard size={20} />} name="Dashboard" />
-          <NavLink path="/Admin/Kelas" icon={<Calendar size={20} />} name="Kelas" />
+          
+          {/* Ikon disesuaikan di bawah ini */}
+          <NavLink path="/Admin/Guru" icon={<Users size={20} />} name="Guru" />
+          <NavLink path="/Admin/Kelas" icon={<Layers size={20} />} name="Kelas" />
           <NavLink path="/Admin/PaketLes" icon={<FileText size={20} />} name="Paket Les" />
-          <NavLink path="/Admin/Jadwal" icon={<MessageSquare size={20} />} name="Jadwal Les" />
-          <NavLink path="/Admin/Mapel" icon={<PlusCircle size={20} />} name="Mapel" />
-          <NavLink path="/Admin/User" icon={<PlusCircle size={20} />} name="Data User" />
-          <NavLink path="/Admin/Pembayaran" icon={<PlusCircle size={20} />} name="Pembayaran" />
+          <NavLink path="/Admin/Jadwal" icon={<Calendar size={20} />} name="Jadwal Les" />
+          <NavLink path="/Admin/Mapel" icon={<BookOpen size={20} />} name="Mapel" />
+          <NavLink path="/Admin/User" icon={<Smartphone size={20} />} name="Data User" />
+          <NavLink path="/Admin/Pembayaran" icon={<CreditCard size={20} />} name="Pembayaran" />
         </div>
 
         <button 

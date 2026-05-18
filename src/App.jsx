@@ -16,11 +16,14 @@ import Notifikasi from './pages/Guru/Notifikasi';
 import DashboardAdmin from './pages/Admin/Dashboard';
 import ProfileAdmin from './pages/Admin/Profile';
 import EditProfileAdmin from './pages/Admin/form/EditProfileAdmin';
+import AdminGuru from './pages/Admin/Guru';
 import AdminKelas from './pages/Admin/Kelas';
+import AdminMapel from './pages/Admin/Mapel';
 import AdminPaketLes from './pages/Admin/PaketLes';
 import AdminJadwal from './pages/Admin/Jadwal';
 import ManajemenUser from './pages/Admin/User';
 import AdminVerifikasiPembayaran from './pages/Admin/Pembayaran';
+import AdminNotifikasi from './pages/Admin/Notifikasi';
 import NotFound from './pages/NotFound';
 import { ThemeProvider } from './context/ThemeContext'; // Import ThemeProvider lo
 
@@ -49,11 +52,14 @@ function App() {
           <Route path="/Admin/Dashboard" element={<DashboardAdmin />} />
           <Route path="/Admin/Profile" element={<ProfileAdmin />} />
           <Route path="/Admin/Profile/Edit" element={<EditProfileAdmin />} />
+          <Route path="/Admin/Guru" element={<AdminGuru />} />
           <Route path="/Admin/Kelas" element={<AdminKelas />} />
+          <Route path="/Admin/Mapel" element={<AdminMapel />} />
           <Route path="/Admin/PaketLes" element={<AdminPaketLes />} />
           <Route path="/Admin/Jadwal" element={<AdminJadwal />} />
           <Route path="/Admin/User" element={<ManajemenUser />} />
           <Route path="/Admin/Pembayaran" element={<AdminVerifikasiPembayaran />} />
+          <Route path="/Admin/Notifikasi" element={<AdminNotifikasi />} />
           {/* Redirect jika halaman tidak ditemukan */}
           <Route path="*" element={<NotFound />} />
         </Routes>
