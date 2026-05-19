@@ -22,7 +22,7 @@ const AdminJadwal = () => {
   // --- STATE FILTER & PAGINATION ---
   const [filterKelas, setFilterKelas] = useState('');
   const [filterHari, setFilterHari] = useState('');
-  const [filterGuru, setFilterGuru] = useState(''); // TAMBAHAN: State untuk filter guru
+  const [filterGuru, setFilterGuru] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(5);
 
@@ -33,7 +33,7 @@ const AdminJadwal = () => {
   const [formData, setFormData] = useState({
     classId: '',     
     teacherId: '',   
-    mapel: '',
+    mapel: [],
     hari: '',
     jamMulai: '',
     jamSelesai: ''
@@ -92,7 +92,7 @@ const AdminJadwal = () => {
   const filteredJadwal = daftarJadwal.filter((j) => {
     const matchKelas = filterKelas === '' || j.classId === filterKelas;
     const matchHari = filterHari === '' || j.hari === filterHari;
-    const matchGuru = filterGuru === '' || j.teacherId === filterGuru; // TAMBAHAN: Logika filter guru
+    const matchGuru = filterGuru === '' || j.teacherId === filterGuru;
     return matchKelas && matchHari && matchGuru;
   });
 
@@ -116,10 +116,10 @@ const AdminJadwal = () => {
         ...formData,
         classId: idKelas,
         teacherId: selectedKelas.teacherId || '',
-        mapel: '' 
+        mapel: [] 
       });
     } else {
-      setFormData({ ...formData, classId: idKelas, teacherId: '', mapel: '' });
+      setFormData({ ...formData, classId: idKelas, teacherId: '', mapel: [] });
     }
   };
 
@@ -134,13 +134,45 @@ const AdminJadwal = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const isDuplicate = daftarJadwal.some((jadwal) => {
+    if (!formData.mapel || formData.mapel.length === 0) {
+      pemicuNotif("Pilih minimal satu mata pelajaran.", "error");
+      return;
+    }
+
+    let errorMessage = '';
+
+    const isInvalid = daftarJadwal.some((jadwal) => {
       if (editId && jadwal.id === editId) return false;
-      return jadwal.classId === formData.classId && jadwal.hari === formData.hari;
+      
+      // Jika di Kelas yang sama dan Hari yang sama
+      if (jadwal.classId === formData.classId && jadwal.hari === formData.hari) {
+        
+        // 1. CEK OVERLAP WAKTU
+        const isOverlap = (formData.jamMulai < jadwal.jamSelesai) && (formData.jamSelesai > jadwal.jamMulai);
+        if (isOverlap) {
+          errorMessage = `Gagal! Terdapat jadwal kelas yang bentrok / tumpang tindih waktu di hari ${formData.hari}.`;
+          return true; // Hentikan pengecekan, kembalikan error
+        }
+
+        // 2. CEK DUPLIKASI MAPEL (Mapel tidak boleh sama di hari yang sama)
+        // Format mapel lama (string) jadi array agar aman saat dicek
+        const jadwalMapelArray = Array.isArray(jadwal.mapel) 
+          ? jadwal.mapel 
+          : (typeof jadwal.mapel === 'string' && jadwal.mapel.trim() !== '' ? [jadwal.mapel] : []);
+          
+        // Cek apakah ada mapel di form yang sudah ada di jadwalMapelArray
+        const duplicateMapels = formData.mapel.filter(m => jadwalMapelArray.includes(m));
+        
+        if (duplicateMapels.length > 0) {
+          errorMessage = `Gagal! Mapel (${duplicateMapels.join(', ')}) sudah memiliki jadwal di hari ${formData.hari}.`;
+          return true; // Hentikan pengecekan, kembalikan error
+        }
+      }
+      return false;
     });
 
-    if (isDuplicate) {
-      pemicuNotif(`Gagal! Jadwal untuk kelas ini di hari ${formData.hari} sudah ada.`, "error");
+    if (isInvalid) {
+      pemicuNotif(errorMessage, "error");
       return; 
     }
 
@@ -177,10 +209,15 @@ const AdminJadwal = () => {
   const openModal = (jadwal = null) => {
     if (jadwal) {
       setEditId(jadwal.id);
-      setFormData({ ...jadwal });
+      
+      const mapelArray = Array.isArray(jadwal.mapel) 
+        ? jadwal.mapel 
+        : (typeof jadwal.mapel === 'string' && jadwal.mapel.trim() !== '' ? [jadwal.mapel] : []);
+
+      setFormData({ ...jadwal, mapel: mapelArray });
     } else {
       setEditId(null);
-      setFormData({ classId: '', teacherId: '', mapel: '', hari: '', jamMulai: '', jamSelesai: '' });
+      setFormData({ classId: '', teacherId: '', mapel: [], hari: '', jamMulai: '', jamSelesai: '' });
     }
     setIsModalOpen(true);
   };
@@ -210,18 +247,11 @@ const AdminJadwal = () => {
       backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#fff', color: colors.textPrimary, 
       marginTop: '5px', boxSizing: 'border-box', appearance: 'none', cursor: 'pointer' 
     },
-    selectDisabled: {
-      width: '100%', padding: '12px 12px 12px 40px', borderRadius: '12px', border: `1px solid ${colors.border}`, 
-      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : '#f3f4f6', color: colors.textMuted, 
-      marginTop: '5px', boxSizing: 'border-box', appearance: 'none', cursor: 'not-allowed'
-    },
     input: {
       width: '100%', padding: '12px 12px 12px 40px', borderRadius: '12px', 
       border: `1px solid ${colors.border}`, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : '#fff', 
       color: colors.textPrimary, marginTop: '5px', boxSizing: 'border-box'
     },
-    
-    // --- STYLING BARU UNTUK FILTER AGAR RAPI ---
     filterContainer: {
       marginBottom: '25px', padding: '20px', 
       backgroundColor: isDarkMode ? 'rgba(255,255,255,0.015)' : '#f8fafc', 
@@ -237,7 +267,6 @@ const AdminJadwal = () => {
       color: colors.textPrimary, fontSize: '13px', fontWeight: '600', appearance: 'none', cursor: 'pointer', outline: 'none',
       boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
     },
-
     infoBox: {
       padding: '15px', borderRadius: '12px', backgroundColor: colors.primary + '10',
       border: `1px dashed ${colors.primary}`, marginTop: '8px', display: 'flex', alignItems: 'center', gap: '10px'
@@ -310,7 +339,7 @@ const AdminJadwal = () => {
           </button>
         </div>
 
-        {/* CONTAINER FILTER BARU */}
+        {/* CONTAINER FILTER */}
         <div style={styles.filterContainer}>
           <div>
             <div style={styles.labelFilter}>PILIH KELAS</div>
@@ -402,7 +431,7 @@ const AdminJadwal = () => {
                            <div style={{ padding: '6px', backgroundColor: colors.primary + '15', borderRadius: '8px' }}>
                              <BookOpen size={14} color={colors.primary} />
                            </div>
-                           {j.mapel || '-'}
+                           {Array.isArray(j.mapel) ? j.mapel.join(', ') : (j.mapel || '-')}
                         </div>
                       </td>
                       <td style={{ padding: '20px 24px', color: colors.textPrimary }}>
@@ -497,23 +526,43 @@ const AdminJadwal = () => {
 
               <div style={{ marginBottom: '20px' }}>
                 <label style={{ fontSize: '11px', fontWeight: '800', color: colors.textMuted, letterSpacing: '1px' }}>MATA PELAJARAN</label>
-                <div style={{ position: 'relative' }}>
-                  <BookOpen size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
-                  <select 
-                    style={formData.classId ? styles.select : styles.selectDisabled} 
-                    value={formData.mapel} 
-                    onChange={(e) => setFormData({...formData, mapel: e.target.value})} 
-                    required 
-                    disabled={!formData.classId}
-                  >
-                    <option value="">
-                      {!formData.classId ? 'Pilih Kelas Terlebih Dahulu' : (mapelTersediaDiKelas.length === 0 ? 'Belum Ada Mapel di Kelas Ini' : '-- Pilih Mata Pelajaran --')}
-                    </option>
-                    {mapelTersediaDiKelas.map(m => (
-                      <option key={m.id} value={m.nama}>{m.nama}</option>
-                    ))}
-                  </select>
-                  <ChevronDown size={18} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
+                <div style={{ 
+                  ...styles.input, 
+                  height: 'auto', 
+                  maxHeight: '160px', 
+                  overflowY: 'auto', 
+                  padding: '12px 14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}>
+                  {!formData.classId ? (
+                    <span style={{ color: colors.textMuted, fontSize: '13px' }}>Pilih Kelas Terlebih Dahulu</span>
+                  ) : mapelTersediaDiKelas.length === 0 ? (
+                    <span style={{ color: colors.textMuted, fontSize: '13px' }}>Belum Ada Mapel di Kelas Ini</span>
+                  ) : (
+                    mapelTersediaDiKelas.map(m => (
+                      <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px', color: colors.textPrimary }}>
+                        <input
+                          type="checkbox"
+                          style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: colors.primary }}
+                          checked={formData.mapel.includes(m.nama)}
+                          onChange={(e) => {
+                            const isChecked = e.target.checked;
+                            let currentMapel = [...formData.mapel];
+                            
+                            if (isChecked) {
+                              currentMapel.push(m.nama);
+                            } else {
+                              currentMapel = currentMapel.filter(item => item !== m.nama);
+                            }
+                            setFormData({...formData, mapel: currentMapel});
+                          }}
+                        />
+                        {m.nama}
+                      </label>
+                    ))
+                  )}
                 </div>
               </div>
 
