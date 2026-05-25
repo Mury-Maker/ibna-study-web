@@ -73,12 +73,20 @@ const TabNilai = ({ mapelId, kelasId }) => {
 
   const handleSimpanSkor = async (pengerjaan) => {
     let skorFinal = pengerjaan.tipeTugas === "Essay" ? totalSkorOtomatisEssay : parseInt(inputSkorGlobal);
+
+    if (pengerjaan.isTerlambat) {
+        skorFinal = Math.max(0, skorFinal - 5); 
+        alert("⚠️ Siswa Terlambat! Nilai otomatis dikurangi 5 poin.");
+    }
+
     if (isNaN(skorFinal) || skorFinal < 0 || skorFinal > 100) return alert("Skor 0-100 wajib valid!");
 
     try {
       await update(ref(db, `Nilai/${pengerjaan.id}`), {
         skor: skorFinal,
-        feedbackGuru: inputFeedback,
+        feedbackGuru: pengerjaan.isTerlambat 
+            ? `${inputFeedback} (Pengurangan nilai karena terlambat mengumpulkan)` 
+            : inputFeedback,
         statusKoreksi: "Selesai",
         breakdownEssay: pengerjaan.tipeTugas === "Essay" ? skorEssayPerSoal : null,
         updatedAt: Date.now()
