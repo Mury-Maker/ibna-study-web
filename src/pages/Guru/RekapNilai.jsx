@@ -7,16 +7,17 @@ import { onAuthStateChanged } from 'firebase/auth';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { 
-  Users as UsersIcon, ArrowLeft, RefreshCw, Eye, X, 
-  ShieldCheck, Lock, Unlock, Download, ChevronLeft, ChevronRight, FileText
+  ArrowLeft, RefreshCw, Eye, ShieldCheck, Lock, Unlock, Download, ChevronLeft, ChevronRight, FileText, X, AlertTriangle
 } from 'lucide-react';
 
 const RekapNilai = () => {
   const { colors, isDarkMode } = useTheme();
   const [selectedKelas, setSelectedKelas] = useState(null);
-  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [expandedStudentId, setExpandedStudentId] = useState(null);
+  const [selectedMapelDetail, setSelectedMapelDetail] = useState(null); 
   const [isProcessing, setIsProcessing] = useState(false);
   const [userUid, setUserUid] = useState(null);
+  const [adaBelumDinilaiGlobal, setAdaBelumDinilaiGlobal] = useState(false); 
   
   const [daftarKelas, setDaftarKelas] = useState([]);
   const [dataNilaiSiswa, setDataNilaiSiswa] = useState([]);
@@ -24,6 +25,7 @@ const RekapNilai = () => {
   const [allKontenRaw, setAllKontenRaw] = useState({});
   const [allUjianRaw, setAllUjianRaw] = useState({});
   const [allUsers, setAllUsers] = useState({});
+  const [allMapelRaw, setAllMapelRaw] = useState({});
   const [statusKunciKelas, setStatusKunciKelas] = useState({});
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -57,6 +59,7 @@ const RekapNilai = () => {
     onValue(ref(db, 'Users'), (snap) => setAllUsers(snap.val() || {}));
     onValue(ref(db, 'Konten'), (snap) => setAllKontenRaw(snap.val() || {}));
     onValue(ref(db, 'UjianPerbulan'), (snap) => setAllUjianRaw(snap.val() || {}));
+    onValue(ref(db, 'Mapel'), (snap) => setAllMapelRaw(snap.val() || {}));
     onValue(ref(db, 'Nilai'), (snap) => {
         const raw = snap.exists() ? Object.keys(snap.val()).map(k => ({ id: k, ...snap.val()[k] })) : [];
         setAllNilaiRaw(raw);
@@ -83,8 +86,11 @@ const RekapNilai = () => {
 
       if (selectedKelas && dataLaporan[selectedKelas.nama]?.[periodeKey]) {
         setDataNilaiSiswa(dataLaporan[selectedKelas.nama][periodeKey].dataSiswa || []);
+        const adaBelum = (dataLaporan[selectedKelas.nama][periodeKey].dataSiswa || []).some(s => s.status === "BELUM DINILAI");
+        setAdaBelumDinilaiGlobal(adaBelum);
       } else if (selectedKelas && !isProcessing) {
         setDataNilaiSiswa([]);
+        setAdaBelumDinilaiGlobal(false);
       }
     });
   };
@@ -94,18 +100,17 @@ const RekapNilai = () => {
     setIsProcessing(true);
     const currentRange = listPeriode.find(p => p.id === selectedPeriode).range;
     
+    const mapelKelasIni = Object.keys(allMapelRaw)
+      .filter(mId => allMapelRaw[mId].classId === selectedKelas.id)
+      .map(mId => ({ id: mId, nama: allMapelRaw[mId].nama }));
+
     onValue(ref(db, 'Siswa'), (snapSiswa) => {
       const allSiswaData = snapSiswa.val() || {};
       const filteredSiswa = Object.values(allSiswaData).filter(s => s.nama_kelas === selectedKelas.nama);
 
-      // FIX: FILTER AGAR MATERI TIDAK MASUK KE REKAP NILAI
       const kuisPeriodeIni = Object.keys(allKontenRaw).filter(kId => {
         const k = allKontenRaw[kId];
-        if (k.kelasId !== selectedKelas.id) return false;
-        
-        // Filter tipeKonten: Pastikan bukan "Materi"
-        if (k.tipeKonten === "Materi") return false;
-
+        if (k.kelasId !== selectedKelas.id || k.tipeKonten === "Materi") return false;
         const tglBuat = new Date(k.createdAt);
         return tglBuat.getFullYear().toString() === selectedYear && 
                tglBuat.getMonth() >= currentRange[0] && 
@@ -121,59 +126,128 @@ const RekapNilai = () => {
                tglBuat.getMonth() <= currentRange[1];
       });
 
-      const hasilFinal = filteredSiswa.map(s => {
-        let sumKuis = 0, sumUjian = 0;
-        let countKuis = kuisPeriodeIni.length;
-        let countUjian = ujianPeriodeIni.length;
-        let adaBelumDinilai = false;
+      let adaBelumDinilaiSatuKelas = false; 
 
+      const hasilFinal = filteredSiswa.map(s => {
+        let adaBelumDinilaiSiswa = false;
+        const nilaiPerMapel = [];
+
+        // 1. EVALUASI UJIAN PERBULAN GLOBAL KELAS
+        let totalSkorUjian = 0;
+        let countUjianIkut = 0;
+        let ujianBelumDinilai = false;
+
+        ujianPeriodeIni.forEach(uId => {
+          const n = allNilaiRaw.find(val => val.studentId === s.userId && val.kontenId === uId);
+          if (n) {
+            if (n.statusKoreksi === "Selesai") {
+              totalSkorUjian += parseFloat(n.skor);
+              countUjianIkut++;
+            } else {
+              adaBelumDinilaiSiswa = true;
+              adaBelumDinilaiSatuKelas = true;
+              ujianBelumDinilai = true;
+            }
+          }
+        });
+        const rataUjianGlobal = countUjianIkut > 0 ? totalSkorUjian / countUjianIkut : 0;
+
+        // 2. KELOLA NILAI INDIVIDUAL PER MATA PELAJARAN
+        let akumulasiKuisSemuaMapel = 0;
+        let mapelPunyaKuisCount = 0;
+
+        mapelKelasIni.forEach(mapel => {
+          let sumKuisMapel = 0;
+          let mapelBelumDinilai = false; 
+          const kuisMapelIni = kuisPeriodeIni.filter(kId => allKontenRaw[kId].mapelId === mapel.id);
+          
+          kuisMapelIni.forEach(kId => {
+            const n = allNilaiRaw.find(val => val.studentId === s.userId && val.kontenId === kId);
+            if (n) {
+              if (n.statusKoreksi === "Selesai") {
+                sumKuisMapel += parseFloat(n.skor);
+              } else {
+                adaBelumDinilaiSiswa = true;
+                adaBelumDinilaiSatuKelas = true;
+                mapelBelumDinilai = true;
+              }
+            }
+          });
+
+          const rataKuisMapel = kuisMapelIni.length > 0 ? sumKuisMapel / kuisMapelIni.length : 0;
+          
+          // CRITICAL FIX: Abaikan dari pembagi jika mapel tersebut belum diterbitkan kuis/tugas
+          if (kuisMapelIni.length > 0) {
+            akumulasiKuisSemuaMapel += rataKuisMapel;
+            mapelPunyaKuisCount++;
+          }
+
+          // Atur Status Kategorisasi Mapel secara Fleksibel
+          let statusMapel = "KOSONG";
+          if (mapelBelumDinilai) {
+            statusMapel = "BELUM DINILAI";
+          } else if (kuisMapelIni.length > 0) {
+            statusMapel = rataKuisMapel >= 75 ? "LULUS" : "REMEDIAL";
+          }
+
+          nilaiPerMapel.push({
+            mapelId: mapel.id,
+            namaMapel: mapel.nama,
+            rataKuis: kuisMapelIni.length > 0 ? rataKuisMapel.toFixed(1) : "-",
+            nilaiAkhir: kuisMapelIni.length > 0 ? parseFloat(rataKuisMapel.toFixed(1)) : "-", 
+            status: statusMapel,
+            hasKuis: kuisMapelIni.length > 0
+          });
+        });
+
+        // 3. MATRIKS FORMULA BOBOT (40% Kuis Aktif : 60% Ujian Global)
+        const rataKuisGlobalSiswa = mapelPunyaKuisCount > 0 ? akumulasiKuisSemuaMapel / mapelPunyaKuisCount : 0;
+        
+        let skorAkhirSiswa = 0;
+        if (mapelPunyaKuisCount > 0 || countUjianIkut > 0) {
+          skorAkhirSiswa = (rataKuisGlobalSiswa * 0.4) + (rataUjianGlobal * 0.6);
+        }
+
+        // Penampung log riwayat aktivitas belajar bulanan
+        const groupedData = {};
         const processDetail = (listIds, rawDataSource, tipeTugas) => {
-          return listIds.map(id => {
+          listIds.forEach(id => {
             const info = rawDataSource[id];
             const n = allNilaiRaw.find(val => val.studentId === s.userId && val.kontenId === id);
             const skor = n && n.statusKoreksi === "Selesai" ? parseFloat(n.skor) : 0;
-            if (n && n.statusKoreksi !== "Selesai") adaBelumDinilai = true; 
-            return {
+            const bln = getNamaBulan(new Date(info.createdAt).getMonth());
+            
+            if (!groupedData[bln]) groupedData[bln] = [];
+            groupedData[bln].push({
               judul: info.judul,
               skor: skor,
               tglTugas: new Date(info.createdAt).toLocaleDateString('id-ID'),
-              bulanIdx: new Date(info.createdAt).getMonth(),
               tipe: tipeTugas,
+              mapelId: info.mapelId || "UjianAkumulatif",
+              mapelNama: allMapelRaw[info.mapelId]?.nama || "Ujian Akumulatif Kelas",
               status: n ? n.statusKoreksi : "Tidak Mengerjakan"
-            };
+            });
           });
         };
 
-        const detailKuis = processDetail(kuisPeriodeIni, allKontenRaw, 'Kuis/Tugas');
-        const detailUjian = processDetail(ujianPeriodeIni, ujianKelasIni, 'Ujian Perbulan');
+        processDetail(kuisPeriodeIni, allKontenRaw, 'Kuis/Tugas');
+        processDetail(ujianPeriodeIni, ujianKelasIni, 'Ujian Perbulan');
 
-        detailKuis.forEach(d => sumKuis += d.skor);
-        detailUjian.forEach(d => sumUjian += d.skor);
-
-        const rataKuis = countKuis > 0 ? sumKuis / countKuis : 0;
-        const rataUjian = countUjian > 0 ? sumUjian / countUjian : 0;
-        const skorAkhir = (rataKuis * 0.4) + (rataUjian * 0.6);
-
-        const groupedData = {};
-        [...detailKuis, ...detailUjian].forEach(item => {
-          const bln = getNamaBulan(item.bulanIdx);
-          if (!groupedData[bln]) groupedData[bln] = [];
-          groupedData[bln].push(item);
-        });
-
-        const statusSiswa = adaBelumDinilai ? "BELUM DINILAI" : (skorAkhir >= 75 ? "LULUS" : "REMEDIAL");
+        let statusSiswa = adaBelumDinilaiSiswa ? "BELUM DINILAI" : (skorAkhirSiswa >= 75 ? "LULUS" : "REMEDIAL");
 
         return {
           id: s.userId,
           nama: allUsers[s.userId]?.nama || s.nama_siswa || "Siswa",
-          rataKuis: rataKuis.toFixed(1),
-          rataUjian: rataUjian.toFixed(1),
-          rataAkhir: parseFloat(skorAkhir.toFixed(1)),
+          rataAkhir: parseFloat(skorAkhirSiswa.toFixed(1)), 
           status: statusSiswa,
+          nilaiPerMapel,
+          rataUjianGlobal: rataUjianGlobal.toFixed(1), 
+          statusUjianCard: ujianBelumDinilai ? "BELUM DINILAI" : (countUjianIkut > 0 ? (rataUjianGlobal >= 75 ? "LULUS" : "REMEDIAL") : "KOSONG"),
           groupedData
         };
       });
 
+      setAdaBelumDinilaiGlobal(adaBelumDinilaiSatuKelas); 
       setDataNilaiSiswa(hasilFinal);
       setIsProcessing(false);
       setCurrentPage(1);
@@ -182,6 +256,7 @@ const RekapNilai = () => {
 
   const handleSimpanLaporanFinal = async () => {
     if (dataNilaiSiswa.length === 0) return alert("Sinkronisasi data dulu!");
+    if (adaBelumDinilaiGlobal) return alert("❌ Gagal Mengunci! Selesaikan penilaian yang berstatus BELUM DINILAI.");
     const path = `Laporan/${selectedKelas.nama}/${selectedYear}_${selectedPeriode}`;
     try {
       await set(ref(db, path), {
@@ -199,65 +274,88 @@ const RekapNilai = () => {
 
   const handleDownloadRekapPDF = () => {
     if (dataNilaiSiswa.length === 0) return alert("Tidak ada data untuk diunduh!");
+    if (adaBelumDinilaiGlobal) return alert("❌ Unduhan Ditolak! Masih ada tugas dengan status BELUM DINILAI.");
     const doc = new jsPDF();
     const periodeNama = listPeriode.find(p => p.id === selectedPeriode).nama;
-    doc.setFontSize(16);
-    doc.text("LAPORAN REKAPITULASI NILAI AKHIR SISWA", 105, 15, { align: 'center' });
+    
+    doc.setFontSize(15);
+    doc.text("LAPORAN REKAPITULASI NILAI AKHIR PER MAPEL", 105, 15, { align: 'center' });
     doc.setFontSize(11);
-    doc.text(`IBNA Study - Kelas: ${selectedKelas.nama}`, 105, 22, { align: 'center' });
-    doc.text(`Periode: ${periodeNama} Tahun ${selectedYear}`, 105, 28, { align: 'center' });
-    doc.line(15, 32, 195, 32);
-    const tableColumn = ["NO", "NAMA SISWA", "RATA KUIS", "RATA UJIAN", "AKHIR", "STATUS"];
-    const tableRows = dataNilaiSiswa.map((s, i) => [i + 1, s.nama.toUpperCase(), s.rataKuis, s.rataUjian, s.rataAkhir, s.status]);
+    doc.text(`IBNA Study - Kelas: ${selectedKelas.nama} | Periode: ${periodeNama}`, 105, 22, { align: 'center' });
+    doc.line(15, 26, 195, 26);
+
+    const mapelHeaders = dataNilaiSiswa[0]?.nilaiPerMapel.map(m => m.namaMapel) || [];
+    const tableColumn = ["NO", "NAMA SISWA", ...mapelHeaders, "RATA UJIAN", "TOTAL AKHIR", "STATUS"];
+
+    const tableRows = dataNilaiSiswa.map((s, i) => {
+      const nilaiMapels = s.nilaiPerMapel.map(m => m.nilaiAkhir);
+      return [i + 1, s.nama.toUpperCase(), ...nilaiMapels, s.rataUjianGlobal, s.rataAkhir, s.status];
+    });
+
     autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
-      startY: 40,
+      startY: 32,
       theme: 'grid',
-      headStyles: { fillColor: [26, 54, 93], halign: 'center' },
-      didParseCell: (data) => {
-        if (data.column.index === 5 && data.cell.section === 'body') {
-          if (data.cell.raw === 'REMEDIAL') data.cell.styles.textColor = [239, 68, 68];
-          if (data.cell.raw === 'LULUS') data.cell.styles.textColor = [16, 185, 129];
-          if (data.cell.raw === 'BELUM DINILAI') data.cell.styles.textColor = [245, 158, 11];
-        }
-      }
+      headStyles: { fillColor: [26, 54, 93], halign: 'center', fontSize: 9 },
+      styles: { fontSize: 9 }
     });
-    doc.save(`Rekap_Nilai_${selectedKelas.nama}.pdf`);
+    doc.save(`Rekap_Nilai_Lengkap_${selectedKelas.nama}.pdf`);
   };
 
   const handleDownloadDetailPDFAll = () => {
     if (dataNilaiSiswa.length === 0) return alert("Tidak ada data untuk diunduh!");
+    if (adaBelumDinilaiGlobal) return alert("❌ Cetak Raport Ditolak! Selesaikan penilaian yang berstatus BELUM DINILAI.");
     const doc = new jsPDF();
     const periodeNama = listPeriode.find(p => p.id === selectedPeriode).nama;
+    
     dataNilaiSiswa.forEach((student, index) => {
       if (index > 0) doc.addPage();
-      doc.setFontSize(16);
-      doc.text("LAPORAN RINCIAN NILAI SISWA", 105, 15, { align: 'center' });
+      doc.setFontSize(15);
+      doc.text("RAPORT CAPAIAN HASIL BELAJAR SISWA", 105, 15, { align: 'center' });
       doc.setFontSize(11);
-      doc.text(`Nama: ${student.nama.toUpperCase()}`, 15, 25);
-      doc.text(`Kelas: ${selectedKelas.nama} | Periode: ${periodeNama}`, 15, 31);
+      doc.text(`Nama : ${student.nama.toUpperCase()}`, 15, 25);
+      doc.text(`Kelas : ${selectedKelas.nama} | Periode: ${periodeNama}`, 15, 31);
       doc.line(15, 35, 195, 35);
-      let currentY = 45;
-      const bulanOrder = ["Juli", "Agustus", "September", "Oktober", "November", "Desember", "Januari", "Februari", "Maret", "April", "Mei", "Juni"];
-      const sortedBulans = Object.keys(student.groupedData || {}).sort((a, b) => bulanOrder.indexOf(a) - bulanOrder.indexOf(b));
-      sortedBulans.forEach((bulan) => {
+
+      doc.text("A. CAPAIAN NILAI MATA PELAJARAN & UJIAN", 15, 43);
+      const rowsMapel = student.nilaiPerMapel.map((m, idx) => [idx + 1, m.namaMapel, "Kuis Harian", m.rataKuis, m.status]);
+      rowsMapel.push([student.nilaiPerMapel.length + 1, "UJIAN PERBULAN AKUMULATIF", "Evaluasi Kelas", student.rataUjianGlobal, student.statusUjianCard]);
+
+      autoTable(doc, {
+        head: [["NO", "KOMPONEN EVALUASI", "KATEGORI", "NILAI RATA-RATA", "STATUS"]],
+        body: rowsMapel,
+        startY: 47,
+        theme: 'grid',
+        headStyles: { fillColor: [26, 54, 93] }
+      });
+
+      let currentY = doc.lastAutoTable.finalY + 10;
+      doc.text("B. LOG RIWAYAT AKTIVITAS PEMBELAJARAN", 15, currentY);
+      currentY += 4;
+
+      Object.keys(student.groupedData || {}).forEach((bulan) => {
+        const itemsBulan = student.groupedData[bulan];
+        if (itemsBulan.length === 0) return;
+
         doc.setFont(undefined, 'bold');
-        doc.text(bulan.toUpperCase(), 15, currentY);
-        currentY += 5;
+        doc.text(`Bulan: ${bulan}`, 15, currentY);
+        currentY += 3;
+        
         autoTable(doc, {
-          head: [["NO", "JUDUL TUGAS", "TIPE", "SKOR"]],
-          body: student.groupedData[bulan].map((item, idx) => [idx + 1, item.judul, item.tipe, item.skor]),
+          head: [["NO", "JUDUL EVALUASI/UJIAN", "KETERANGAN", "TIPE", "SKOR"]],
+          body: itemsBulan.map((item, idx) => [idx + 1, item.judul, item.mapelNama, item.tipe, item.status === "Selesai" ? item.skor : (item.status === "Tidak Mengerjakan" ? "0" : "?")]),
           startY: currentY,
           theme: 'grid',
           headStyles: { fillColor: [71, 85, 105] }
         });
-        currentY = doc.lastAutoTable.finalY + 12;
+        currentY = doc.lastAutoTable.finalY + 8;
       });
+
       doc.setFont(undefined, 'bold');
-      doc.text(`NILAI AKHIR: ${student.rataAkhir} (${student.status})`, 15, currentY);
+      doc.text(`((Total Nilai Kuis 40%)+(Total Nilai Ujian Bulanan 60%) : 2) \nTOTAL FORMULA RATA-RATA AKADEMIK : ${student.rataAkhir} (${student.status})`, 15, currentY + 4);
     });
-    doc.save(`Detail_Lengkap_${selectedKelas.nama}.pdf`);
+    doc.save(`Raport_Detail_Lengkap_${selectedKelas.nama}.pdf`);
   };
 
   const indexOfLastItem = currentPage * itemsPerPage;
@@ -299,7 +397,7 @@ const RekapNilai = () => {
     <GuruLayout title={`Rekap ${selectedKelas.nama}`}>
       <div style={{ padding: '24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px' }}>
-          <button onClick={() => {setSelectedKelas(null); setDataNilaiSiswa([]);}} style={{ background: 'none', border: 'none', color: colors.textMuted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}><ArrowLeft size={18}/> Kembali</button>
+          <button onClick={() => {setSelectedKelas(null); setDataNilaiSiswa([]); setExpandedStudentId(null); setAdaBelumDinilaiGlobal(false);}} style={{ background: 'none', border: 'none', color: colors.textMuted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}><ArrowLeft size={18}/> Kembali</button>
           
           <div style={{ display: 'flex', gap: '10px' }}>
             {!statusKunciKelas[selectedKelas.nama] ? (
@@ -308,7 +406,11 @@ const RekapNilai = () => {
                   <RefreshCw size={18} className={isProcessing ? "animate-spin" : ""}/> Sinkronisasi
                 </button>
                 {dataNilaiSiswa.length > 0 && (
-                  <button onClick={handleSimpanLaporanFinal} style={{ padding: '10px 20px', backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button 
+                    onClick={handleSimpanLaporanFinal} 
+                    disabled={adaBelumDinilaiGlobal}
+                    style={{ padding: '10px 20px', backgroundColor: adaBelumDinilaiGlobal ? '#cbd5e1' : '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: adaBelumDinilaiGlobal ? 'not-allowed' : 'pointer', display: 'flex', gap: '8px', alignItems: 'center' }}
+                  >
                     <ShieldCheck size={18}/> Kunci FINAL
                   </button>
                 )}
@@ -318,10 +420,18 @@ const RekapNilai = () => {
                 <div style={{ padding: '10px 24px', backgroundColor: '#10b98120', color: '#10b981', borderRadius: '10px', fontWeight: 'bold', border: '1px solid #10b98150', display:'flex', alignItems:'center', gap:'8px' }}>
                   <ShieldCheck size={18}/> LAPORAN TERKUNCI FINAL
                 </div>
-                <button onClick={handleDownloadRekapPDF} style={{ padding: '10px 20px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button 
+                  onClick={handleDownloadRekapPDF} 
+                  disabled={adaBelumDinilaiGlobal}
+                  style={{ padding: '10px 20px', backgroundColor: adaBelumDinilaiGlobal ? '#cbd5e1' : '#3b82f6', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: adaBelumDinilaiGlobal ? 'not-allowed' : 'pointer', display: 'flex', gap: '8px', alignItems: 'center' }}
+                >
                   <Download size={18}/> Rekap PDF
                 </button>
-                <button onClick={handleDownloadDetailPDFAll} style={{ padding: '10px 20px', backgroundColor: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button 
+                  onClick={handleDownloadDetailPDFAll} 
+                  disabled={adaBelumDinilaiGlobal}
+                  style={{ padding: '10px 20px', backgroundColor: adaBelumDinilaiGlobal ? '#cbd5e1' : '#8b5cf6', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: adaBelumDinilaiGlobal ? 'not-allowed' : 'pointer', display: 'flex', gap: '8px', alignItems: 'center' }}
+                >
                   <FileText size={18}/> Detail PDF
                 </button>
               </div>
@@ -329,62 +439,176 @@ const RekapNilai = () => {
           </div>
         </div>
 
+        {adaBelumDinilaiGlobal && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px 24px', backgroundColor: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '12px', color: '#b45309', fontWeight: 'bold', marginBottom: '20px', fontSize: '14px' }}>
+            <AlertTriangle size={20} color="#d97706"/>
+            <span>Peringatan: Terdapat komponen evaluasi siswa yang BELUM DINILAI. Fitur Penguncian Laporan dan Cetak PDF dinonaktifkan sementara demi menjaga validitas data raport.</span>
+          </div>
+        )}
+
         <div style={{ backgroundColor: colors.cardBg, borderRadius: '16px', border: `1px solid ${colors.border}`, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : '#f8fafc' }}>
+              <tr style={{ backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : '#f8fafc', borderBottom: `1px solid ${colors.border}` }}>
                 <th style={{ padding: '18px', textAlign: 'left', color: colors.textMuted, fontSize: '12px', fontWeight: '900' }}>NAMA SISWA</th>
-                <th style={{ padding: '18px', color: colors.textMuted, fontSize: '12px', fontWeight: '900' }}>AKHIR</th>
-                <th style={{ padding: '18px', color: colors.textMuted, fontSize: '12px', fontWeight: '900' }}>STATUS</th>
-                <th style={{ padding: '18px', color: colors.textMuted, fontSize: '12px', fontWeight: '900' }}>AKSI</th>
+                <th style={{ padding: '18px', color: colors.textMuted, fontSize: '12px', fontWeight: '900', textAlign: 'center' }}>RATA AKADEMIK</th>
+                <th style={{ padding: '18px', color: colors.textMuted, fontSize: '12px', fontWeight: '900', textAlign: 'center' }}>STATUS AKHIR</th>
+                <th style={{ padding: '18px', color: colors.textMuted, fontSize: '12px', fontWeight: '900', textAlign: 'center' }}>RINCIAN MAPEL</th>
               </tr>
             </thead>
             <tbody>
-              {currentItems.map((s) => (
-                <tr key={s.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <td style={{ padding: '18px', color: colors.textPrimary, fontWeight: 'bold' }}>{s.nama}</td>
-                  <td style={{ textAlign: 'center', fontWeight: '900', color: colors.primary }}>{s.rataAkhir}</td>
-                  <td style={{ textAlign: 'center' }}>
-                    <span style={{ padding: '5px 12px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold', backgroundColor: s.status === 'LULUS' ? '#10b98120' : (s.status === 'REMEDIAL' ? '#ef444420' : '#f59e0b20'), color: s.status === 'LULUS' ? '#10b981' : (s.status === 'REMEDIAL' ? '#ef4444' : '#f59e0b') }}>{s.status}</span>
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <button onClick={() => setSelectedStudent(s)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><Eye size={18} color={colors.primary}/></button>
-                  </td>
-                </tr>
-              ))}
+              {currentItems.map((s) => {
+                const isExpanded = expandedStudentId === s.id;
+                return (
+                  <React.Fragment key={s.id}>
+                    <tr style={{ borderBottom: isExpanded ? 'none' : `1px solid ${colors.border}`, backgroundColor: isExpanded ? (isDarkMode ? 'rgba(255,255,255,0.01)' : '#f8fafc') : 'transparent', transition: 'background-color 0.2s' }}>
+                      <td style={{ padding: '18px', color: colors.textPrimary, fontWeight: 'bold' }}>{s.nama}</td>
+                      <td style={{ textAlign: 'center', fontWeight: '900', color: colors.primary }}>{s.rataAkhir}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span style={{ padding: '5px 12px', borderRadius: '8px', fontSize: '11px', fontWeight: 'bold', backgroundColor: s.status === 'LULUS' ? '#10b98120' : (s.status === 'REMEDIAL' ? '#ef444420' : '#f59e0b20'), color: s.status === 'LULUS' ? '#10b981' : (s.status === 'REMEDIAL' ? '#ef4444' : '#f59e0b') }}>{s.status}</span>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button 
+                          onClick={() => setExpandedStudentId(isExpanded ? null : s.id)} 
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: '50%', backgroundColor: isExpanded ? colors.primary + '15' : 'transparent', transition: 'all 0.2s' }}
+                        >
+                          <Eye size={18} color={isExpanded ? '#10b981' : colors.primary}/>
+                        </button>
+                      </td>
+                    </tr>
+
+                    {isExpanded && (
+                      <tr style={{ borderBottom: `1px solid ${colors.border}`, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.01)' : '#f8fafc' }}>
+                        <td colSpan="4" style={{ padding: '0px 24px 24px 24px' }}>
+                          <div style={{ borderTop: `1px dashed ${colors.border}`, paddingTop: '16px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+                              
+                              {/* DYNAMIC CARD RENDERING FOR INDIVIDUAL MAPEL */}
+                              {s.nilaiPerMapel.map((m, idx) => (
+                                <div 
+                                  key={idx} 
+                                  onClick={() => {
+                                    if(!m.hasKuis) return;
+                                    setSelectedMapelDetail({
+                                      namaSiswa: s.nama,
+                                      namaMapel: `Kuis Harian: ${m.namaMapel}`,
+                                      mapelId: m.mapelId,
+                                      isUjian: false,
+                                      groupedData: s.groupedData
+                                    });
+                                  }}
+                                  style={{ padding: '14px', borderRadius: '12px', border: `1px solid ${colors.border}`, backgroundColor: colors.cardBg, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', cursor: m.hasKuis ? 'pointer' : 'default', transition: 'transform 0.15s, border-color 0.15s' }}
+                                  onMouseEnter={(e) => { if(m.hasKuis) { e.currentTarget.style.borderColor = colors.primary; e.currentTarget.style.transform = 'translateY(-2px)'; } }}
+                                  onMouseLeave={(e) => { if(m.hasKuis) { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.transform = 'translateY(0)'; } }}
+                                >
+                                  <div>
+                                    <div style={{ color: colors.textPrimary, fontWeight: '800', fontSize: '14px' }}>{m.namaMapel}</div>
+                                    <div style={{ color: colors.textMuted, fontSize: '11px', marginTop: '2px' }}>
+                                      {m.status === "BELUM DINILAI" ? "Ada kuis belum diperiksa" : (!m.hasKuis ? "Belum diterbitkan kuis" : `Rata-rata Kuis: ${m.rataKuis}`)}
+                                    </div>
+                                  </div>
+                                  <div style={{ textAlign: 'right' }}>
+                                    <div style={{ fontSize: '16px', fontWeight: '900', color: m.status === "BELUM DINILAI" ? "#f59e0b" : (m.status === "KOSONG" ? "#64748b" : colors.primary) }}>
+                                      {m.status === "BELUM DINILAI" ? "?" : m.rataKuis}
+                                    </div>
+                                    <span style={{ 
+                                      fontSize: '10px', 
+                                      fontWeight: 'bold', 
+                                      color: m.status === 'LULUS' ? '#10b981' : (m.status === 'BELUM DINILAI' ? '#f59e0b' : (m.status === 'KOSONG' ? '#64748b' : '#ef4444')) 
+                                    }}>
+                                      {m.status}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+
+                              {/* MANDATORY EXAM CARD EVALUATION */}
+                              <div 
+                                onClick={() => {
+                                  if(s.statusUjianCard === "KOSONG") return;
+                                  setSelectedMapelDetail({
+                                    namaSiswa: s.nama,
+                                    namaMapel: "Ujian Perbulan (Akumulatif Kelas)",
+                                    mapelId: "UjianAkumulatif",
+                                    isUjian: true,
+                                    groupedData: s.groupedData
+                                  });
+                                }}
+                                style={{ padding: '14px', borderRadius: '12px', border: `1px solid ${colors.border}`, backgroundColor: colors.cardBg, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', cursor: s.statusUjianCard !== "KOSONG" ? 'pointer' : 'default', transition: 'transform 0.15s, border-color 0.15s', borderLeft: `4px solid ${colors.primary}` }}
+                                onMouseEnter={(e) => { if(s.statusUjianCard !== "KOSONG") { e.currentTarget.style.borderColor = colors.primary; e.currentTarget.style.transform = 'translateY(-2px)'; } }}
+                                onMouseLeave={(e) => { if(s.statusUjianCard !== "KOSONG") { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.transform = 'translateY(0)'; } }}
+                              >
+                                <div>
+                                  <div style={{ color: colors.primary, fontWeight: '900', fontSize: '14px' }}>UJIAN PERBULAN</div>
+                                  <div style={{ color: colors.textMuted, fontSize: '11px', marginTop: '2px' }}>
+                                    {s.statusUjianCard === "BELUM DINILAI" ? "Ada lembar ujian belum dinilai" : (s.statusUjianCard === "KOSONG" ? "Belum diselenggarakan" : "Evaluasi Akumulatif Kelas")}
+                                  </div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: '16px', fontWeight: '900', color: s.statusUjianCard === "BELUM DINILAI" ? "#f59e0b" : (s.statusUjianCard === "KOSONG" ? "#64748b" : colors.primary) }}>
+                                    {s.statusUjianCard === "BELUM DINILAI" ? "?" : (s.statusUjianCard === "KOSONG" ? "-" : s.rataUjianGlobal)}
+                                  </div>
+                                  <span style={{ 
+                                    fontSize: '10px', 
+                                    fontWeight: 'bold', 
+                                    color: s.statusUjianCard === 'LULUS' ? '#10b981' : (s.statusUjianCard === 'BELUM DINILAI' ? '#f59e0b' : (s.statusUjianCard === 'KOSONG' ? '#64748b' : '#ef4444')) 
+                                  }}>
+                                    {s.statusUjianCard}
+                                  </span>
+                                </div>
+                              </div>
+
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
-          
-          {dataNilaiSiswa.length > itemsPerPage && (
-            <div style={{ padding: '20px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '15px', borderTop: `1px solid ${colors.border}` }}>
-              <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)} style={{ padding: '8px', borderRadius: '8px', border: `1px solid ${colors.border}`, backgroundColor: colors.cardBg, cursor: currentPage === 1 ? 'not-allowed' : 'pointer', color: colors.textPrimary }}><ChevronLeft size={20}/></button>
-              <span style={{ fontWeight: 'bold', color: colors.textPrimary }}>Halaman {currentPage} dari {totalPages}</span>
-              <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} style={{ padding: '8px', borderRadius: '8px', border: `1px solid ${colors.border}`, backgroundColor: colors.cardBg, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', color: colors.textPrimary }}><ChevronRight size={20}/></button>
-            </div>
-          )}
         </div>
       </div>
 
-      {selectedStudent && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, backdropFilter: 'blur(4px)' }}>
-          <div style={{ background: colors.cardBg, width: '90%', maxWidth: '600px', padding: '30px', borderRadius: '24px', position: 'relative', border: `1px solid ${colors.border}` }}>
-            <button onClick={() => setSelectedStudent(null)} style={{ position: 'absolute', right: '25px', top: '25px', cursor: 'pointer', background: 'none', border: 'none' }}><X size={24} color={colors.textPrimary}/></button>
-            <h3 style={{ color: colors.textPrimary, marginBottom: '20px', fontWeight: '900' }}>{selectedStudent.nama}</h3>
-            <div style={{ maxHeight: '450px', overflowY: 'auto' }}>
-              {Object.keys(selectedStudent.groupedData || {}).map(bulan => (
-                <div key={bulan} style={{ marginBottom: '20px' }}>
-                  <div style={{ backgroundColor: colors.primary + '15', padding: '8px 15px', borderRadius: '8px', color: colors.primary, fontWeight: 'bold', marginBottom: '10px' }}>{bulan}</div>
-                  {selectedStudent.groupedData[bulan].map((item, idx) => (
-                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: `1px solid ${colors.border}` }}>
-                      <div>
-                        <div style={{ color: colors.textPrimary, fontWeight: 'bold', fontSize: '13px' }}>{item.judul}</div>
-                        <div style={{ color: colors.textMuted, fontSize: '11px' }}>{item.tipe} | Status: {item.status}</div>
+      {/* DETAILED TASKS SUB-MODAL POPUP */}
+      {selectedMapelDetail && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, backdropFilter: 'blur(4px)' }}>
+          <div style={{ background: colors.cardBg, width: '90%', maxWidth: '600px', padding: '30px', borderRadius: '24px', position: 'relative', border: `1px solid ${colors.border}`, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            <button onClick={() => setSelectedMapelDetail(null)} style={{ position: 'absolute', right: '25px', top: '25px', cursor: 'pointer', background: 'none', border: 'none' }}><X size={24} color={colors.textPrimary}/></button>
+            
+            <h3 style={{ color: colors.textPrimary, fontWeight: '900', margin: 0 }}>{selectedMapelDetail.namaMapel}</h3>
+            <p style={{ color: colors.textMuted, fontSize: '13px', marginTop: '4px', marginBottom: '20px' }}>Siswa: {selectedMapelDetail.namaSiswa}</p>
+            
+            <div style={{ maxHeight: '380px', overflowY: 'auto', paddingRight: '5px' }}>
+              {Object.keys(selectedMapelDetail.groupedData || {}).map(bulan => {
+                const itemsBulanIni = selectedMapelDetail.groupedData[bulan].filter(item => {
+                  if (selectedMapelDetail.isUjian) {
+                    return item.mapelId === "UjianAkumulatif";
+                  } else {
+                    return item.mapelId === selectedMapelDetail.mapelId;
+                  }
+                });
+
+                if (itemsBulanIni.length === 0) return null;
+
+                return (
+                  <div key={bulan} style={{ marginBottom: '20px' }}>
+                    <div style={{ backgroundColor: colors.primary + '15', padding: '6px 14px', borderRadius: '8px', color: colors.primary, fontWeight: 'bold', fontSize: '13px', marginBottom: '8px' }}>{bulan.toUpperCase()}</div>
+                    {itemsBulanIni.map((item, idx) => (
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 4px', borderBottom: `1px solid ${colors.border}` }}>
+                        <div>
+                          <div style={{ color: colors.textPrimary, fontWeight: 'bold', fontSize: '13px' }}>{item.judul}</div>
+                          <div style={{ color: colors.textMuted, fontSize: '11px', marginTop: '2px' }}>{item.tipe} | Status: <span style={{ fontWeight: '600', color: item.status === "Selesai" ? '#10b981' : (item.status === "Tidak Mengerjakan" ? '#ef4444' : '#f59e0b') }}>{item.status}</span></div>
+                        </div>
+                        <div style={{ fontWeight: '900', fontSize: '15px', color: item.status === "Selesai" ? colors.primary : (item.status === "Tidak Mengerjakan" ? '#ef4444' : '#f59e0b'), alignSelf: 'center' }}>
+                          {item.status === "Selesai" ? item.skor : (item.status === "Tidak Mengerjakan" ? "0" : "?")}
+                        </div>
                       </div>
-                      <div style={{ fontWeight: 'bold', color: item.status === "Selesai" ? colors.primary : "#f59e0b" }}>{item.skor}</div>
-                    </div>
-                  ))}
-                </div>
-              ))}
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
