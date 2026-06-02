@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../../api/firebase';
 import { ref, onValue, push, update, remove, set } from 'firebase/database';
 import { 
@@ -19,7 +19,13 @@ const AdminMapel = () => {
   // --- STATE FILTER & PAGINATION ---
   const [filterKelas, setFilterKelas] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(5); 
+  const [itemsPerPage] = useState(10); 
+  
+  // --- STATE CUSTOM DROPDOWN (FILTER & FORM) ---
+  const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
+  const [isFormDropdownOpen, setIsFormDropdownOpen] = useState(false);
+  const filterRef = useRef(null);
+  const formRef = useRef(null);
   
   // --- STATE NOTIFIKASI & KONFIRMASI HAPUS ---
   const [notif, setNotif] = useState({ show: false, message: '', type: 'success' });
@@ -29,6 +35,20 @@ const AdminMapel = () => {
     nama: '',
     classId: ''
   });
+
+  // Menutup dropdown (Filter maupun Form) jika diklik di luar elemen
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (filterRef.current && !filterRef.current.contains(event.target)) {
+        setIsFilterDropdownOpen(false);
+      }
+      if (formRef.current && !formRef.current.contains(event.target)) {
+        setIsFormDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Fungsi Pemicu Notifikasi Melayang (Toast)
   const pemicuNotif = (message, type = 'success') => {
@@ -59,6 +79,11 @@ const AdminMapel = () => {
     };
   }, []);
 
+  // --- SORTING DATA BERDASARKAN ABJAD (A-Z) ---
+  const sortedDaftarKelas = [...daftarKelas].sort((a, b) => 
+    a.nama_kelas.localeCompare(b.nama_kelas)
+  );
+
   // --- LOGIKA FILTER ---
   const filteredMapel = daftarMapel.filter((mapel) => {
     return filterKelas === '' || mapel.classId === filterKelas;
@@ -85,24 +110,25 @@ const AdminMapel = () => {
     return kelas ? `${kelas.nama_kelas} (${kelas.jenjang})` : 'Kelas tidak ditemukan';
   };
 
-  // --- HANDLER SUBMIT (TAMBAH / EDIT) DENGAN VALIDASI DUPLIKASI ---
+  // --- HANDLER SUBMIT (TAMBAH / EDIT) ---
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    // Validasi Manual: Pastikan kelas sudah dipilih (Karena custom div tidak punya atribut required native)
+    if (!formData.classId) {
+      pemicuNotif("Silakan pilih kelas terlebih dahulu!", "error");
+      return;
+    }
+
     // 1. Cek Duplikasi Data
     const isDuplicate = daftarMapel.some((mapel) => {
-      // Abaikan pengecekan pada data yang sedang diedit itu sendiri
       if (editId && mapel.id === editId) return false;
-      
-      // Pengecekan case-insensitive & menghapus spasi berlebih
       const isSameMapel = mapel.nama.toLowerCase().trim() === formData.nama.toLowerCase().trim();
       const isSameClass = mapel.classId === formData.classId;
-
       return isSameMapel && isSameClass;
     });
 
     if (isDuplicate) {
-      // Batalkan simpan dan beri notifikasi error
       pemicuNotif(`Mapel "${formData.nama}" sudah ada di kelas yang dipilih!`, "error");
       return; 
     }
@@ -134,7 +160,6 @@ const AdminMapel = () => {
       await remove(ref(db, `Mapel/${confirmDelete.id}`));
       pemicuNotif("Mata pelajaran berhasil dihapus.", "success");
       
-      // Jika data terakhir di halaman tersebut dihapus, mundur 1 halaman (jika bukan hal 1)
       if (currentMapel.length === 1 && currentPage > 1) {
         setCurrentPage(currentPage - 1);
       }
@@ -146,6 +171,7 @@ const AdminMapel = () => {
   };
 
   const openModal = (mapel = null) => {
+    setIsFormDropdownOpen(false); // Pastikan dropdown tertutup saat modal pertama kali dibuka
     if (mapel) {
       setEditId(mapel.id);
       setFormData({ 
@@ -185,7 +211,7 @@ const AdminMapel = () => {
         backgroundColor: colors.cardBg, padding: '30px', borderRadius: '20px', 
         width: '100%', maxWidth: '450px', boxSizing: 'border-box', 
         border: `1px solid ${colors.border}`, boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
-        maxHeight: '90vh', overflowY: 'auto'
+        maxHeight: '90vh', overflowY: 'visible' // Diubah ke visible agar dropdown form tidak terpotong (jika modalnya kecil)
     },
     inputGroup: { marginBottom: '20px', width: '100%' },
     inputWrapper: { position: 'relative', width: '100%' },
@@ -200,6 +226,31 @@ const AdminMapel = () => {
       backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : '#f8fafc', color: colors.textPrimary, 
       fontSize: '13px', fontWeight: '600', boxSizing: 'border-box', appearance: 'none', cursor: 'pointer' 
     },
+    // --- STYLES UNTUK CUSTOM DROPDOWN MENU ---
+    customSelectMenu: {
+      position: 'absolute',
+      top: '100%',
+      left: 0,
+      width: '100%',
+      maxHeight: '250px', /* Disesuaikan agar muat +- 8-10 item */
+      overflowY: 'auto', 
+      backgroundColor: isDarkMode ? '#1e293b' : '#fff',
+      border: `1px solid ${colors.border}`,
+      borderRadius: '8px',
+      zIndex: 100, /* Z-index tinggi agar tampil di atas elemen lain */
+      marginTop: '6px',
+      boxShadow: '0 10px 25px rgba(0,0,0,0.1)'
+    },
+    customSelectItem: (isActive) => ({
+      padding: '10px 15px',
+      cursor: 'pointer',
+      fontSize: '13px',
+      color: isActive ? colors.primary : colors.textPrimary,
+      backgroundColor: isActive ? (isDarkMode ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF') : 'transparent',
+      borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : '#f1f5f9'}`,
+      fontWeight: isActive ? '700' : '500',
+      transition: 'background-color 0.2s ease'
+    }),
     paginationContainer: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 24px', borderTop: `1px solid ${colors.border}` },
     pageBtn: { padding: '6px 12px', borderRadius: '8px', border: `1px solid ${colors.border}`, backgroundColor: colors.cardBg, color: colors.textPrimary, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', fontWeight: '600' },
     pageNumber: (active) => ({ padding: '6px 12px', borderRadius: '8px', border: 'none', backgroundColor: active ? colors.primary : 'transparent', color: active ? '#fff' : colors.textPrimary, cursor: 'pointer', fontSize: '13px', fontWeight: '600' }),
@@ -283,23 +334,52 @@ const AdminMapel = () => {
             <span style={{ fontSize: '12px', fontWeight: '800' }}>FILTER :</span>
           </div>
 
-          {/* Filter Kelas */}
-          <div style={{ position: 'relative', width: '250px' }}>
-            <LayoutGrid size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
-            <select 
-              value={filterKelas}
-              onChange={(e) => setFilterKelas(e.target.value)}
-              style={styles.filterSelect}
+          {/* CUSTOM DROPDOWN FILTER KELAS */}
+          <div ref={filterRef} style={{ position: 'relative', width: '250px' }}>
+            <LayoutGrid size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none', zIndex: 2 }} />
+            
+            <div 
+              onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
+              style={{ ...styles.filterSelect, display: 'flex', alignItems: 'center', paddingLeft: '32px' }}
             >
-              <option value="">Semua Kelas</option>
-              {daftarKelas.map((k) => (
-                <option key={k.id} value={k.id}>{k.nama_kelas} ({k.jenjang})</option>
-              ))}
-            </select>
-            <ChevronDown size={14} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
+              <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {filterKelas === '' ? 'Semua Kelas' : getClassName(filterKelas)}
+              </span>
+              <ChevronDown 
+                size={14} 
+                style={{ 
+                  color: colors.textMuted, 
+                  transition: 'transform 0.2s', 
+                  transform: isFilterDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)' 
+                }} 
+              />
+            </div>
+
+            {isFilterDropdownOpen && (
+              <div style={styles.customSelectMenu}>
+                <div 
+                  onClick={() => { setFilterKelas(''); setIsFilterDropdownOpen(false); }}
+                  style={styles.customSelectItem(filterKelas === '')}
+                  onMouseEnter={(e) => e.target.style.backgroundColor = isDarkMode ? 'rgba(255,255,255,0.05)' : '#f8fafc'}
+                  onMouseLeave={(e) => e.target.style.backgroundColor = filterKelas === '' ? (isDarkMode ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF') : 'transparent'}
+                >
+                  Semua Kelas
+                </div>
+                {sortedDaftarKelas.map((k) => (
+                  <div 
+                    key={k.id}
+                    onClick={() => { setFilterKelas(k.id); setIsFilterDropdownOpen(false); }}
+                    style={styles.customSelectItem(filterKelas === k.id)}
+                    onMouseEnter={(e) => e.target.style.backgroundColor = isDarkMode ? 'rgba(255,255,255,0.05)' : '#f8fafc'}
+                    onMouseLeave={(e) => e.target.style.backgroundColor = filterKelas === k.id ? (isDarkMode ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF') : 'transparent'}
+                  >
+                    {k.nama_kelas} ({k.jenjang})
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Tombol Reset Filter */}
           {filterKelas && (
             <button 
               onClick={() => setFilterKelas('')}
@@ -382,7 +462,7 @@ const AdminMapel = () => {
         </div>
       </div>
 
-      {/* MODAL SECTION */}
+      {/* MODAL SECTION (TAMBAH / EDIT) */}
       {isModalOpen && (
         <div style={styles.modalOverlay}>
           <div style={styles.modalContent}>
@@ -410,24 +490,58 @@ const AdminMapel = () => {
                 </div>
               </div>
 
+              {/* CUSTOM DROPDOWN FORM KELAS */}
               <div style={styles.inputGroup}>
                 <label style={{ fontSize: '11px', fontWeight: '800', color: colors.textMuted }}>PILIH KELAS</label>
-                <div style={styles.inputWrapper}>
-                  <School size={18} style={{ position: 'absolute', left: '12px', top: '18px', color: colors.textMuted }} />
-                  <select 
-                    style={styles.input} 
-                    value={formData.classId} 
-                    onChange={(e) => setFormData({...formData, classId: e.target.value})} 
-                    required
+                <div ref={formRef} style={{ ...styles.inputWrapper, marginTop: '5px' }}>
+                  <School size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, zIndex: 2 }} />
+                  
+                  <div 
+                    onClick={() => setIsFormDropdownOpen(!isFormDropdownOpen)}
+                    style={{ 
+                      ...styles.input, marginTop: 0, display: 'flex', alignItems: 'center', 
+                      paddingLeft: '40px', paddingRight: '40px', cursor: 'pointer' 
+                    }}
                   >
-                    <option value="">-- Pilih Kelas --</option>
-                    {daftarKelas.map((kelas) => (
-                      <option key={kelas.id} value={kelas.id}>
-                        {kelas.nama_kelas} ({kelas.jenjang})
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown size={18} style={{ position: 'absolute', right: '12px', top: '18px', color: colors.textMuted, pointerEvents: 'none' }} />
+                    <span style={{ 
+                      flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      color: formData.classId === '' ? colors.textMuted : colors.textPrimary 
+                    }}>
+                      {formData.classId === '' ? '-- Pilih Kelas --' : getClassName(formData.classId)}
+                    </span>
+                  </div>
+
+                  <ChevronDown size={18} style={{ 
+                      position: 'absolute', right: '12px', top: '50%', 
+                      transform: `translateY(-50%) ${isFormDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)'}`, 
+                      color: colors.textMuted, pointerEvents: 'none', transition: 'transform 0.2s' 
+                    }} 
+                  />
+
+                  {/* Menu Dropdown Modal Form */}
+                  {isFormDropdownOpen && (
+                    <div style={{ ...styles.customSelectMenu, bottom: 'auto' }}>
+                      <div 
+                        onClick={() => { setFormData({...formData, classId: ''}); setIsFormDropdownOpen(false); }}
+                        style={styles.customSelectItem(formData.classId === '')}
+                        onMouseEnter={(e) => e.target.style.backgroundColor = isDarkMode ? 'rgba(255,255,255,0.05)' : '#f8fafc'}
+                        onMouseLeave={(e) => e.target.style.backgroundColor = formData.classId === '' ? (isDarkMode ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF') : 'transparent'}
+                      >
+                        -- Pilih Kelas --
+                      </div>
+                      {sortedDaftarKelas.map((kelas) => (
+                        <div 
+                          key={kelas.id}
+                          onClick={() => { setFormData({...formData, classId: kelas.id}); setIsFormDropdownOpen(false); }}
+                          style={styles.customSelectItem(formData.classId === kelas.id)}
+                          onMouseEnter={(e) => e.target.style.backgroundColor = isDarkMode ? 'rgba(255,255,255,0.05)' : '#f8fafc'}
+                          onMouseLeave={(e) => e.target.style.backgroundColor = formData.classId === kelas.id ? (isDarkMode ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF') : 'transparent'}
+                        >
+                          {kelas.nama_kelas} ({kelas.jenjang})
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 

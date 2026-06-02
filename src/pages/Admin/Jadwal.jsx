@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../../api/firebase';
-import { ref, onValue, push, remove, set } from 'firebase/database';
+import { ref, onValue, push, remove, set, update } from 'firebase/database';
 import { 
   Plus, Edit, Trash2, X, Save, Clock, 
   LayoutGrid, Calendar as CalendarIcon, User, UserCheck,
@@ -24,7 +24,13 @@ const AdminJadwal = () => {
   const [filterHari, setFilterHari] = useState('');
   const [filterGuru, setFilterGuru] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(5);
+  const [itemsPerPage] = useState(10);
+
+  // --- STATE CUSTOM DROPDOWN KELAS ---
+  const [isFilterKelasOpen, setIsFilterKelasOpen] = useState(false);
+  const [isFormKelasOpen, setIsFormKelasOpen] = useState(false);
+  const filterKelasRef = useRef(null);
+  const formKelasRef = useRef(null);
 
   // --- STATE NOTIFIKASI & KONFIRMASI HAPUS ---
   const [notif, setNotif] = useState({ show: false, message: '', type: 'success' });
@@ -40,6 +46,20 @@ const AdminJadwal = () => {
   });
 
   const daftarHari = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+
+  // Menutup dropdown kelas jika diklik di luar elemen
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (filterKelasRef.current && !filterKelasRef.current.contains(event.target)) {
+        setIsFilterKelasOpen(false);
+      }
+      if (formKelasRef.current && !formKelasRef.current.contains(event.target)) {
+        setIsFormKelasOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const pemicuNotif = (message, type = 'success') => {
     setNotif({ show: true, message, type });
@@ -88,6 +108,10 @@ const AdminJadwal = () => {
     };
   }, []);
 
+  // --- SORTING DATA BERDASARKAN ABJAD (A-Z) ---
+  const sortedDaftarKelas = [...daftarKelas].sort((a, b) => a.nama_kelas.localeCompare(b.nama_kelas));
+  const sortedDaftarGuru = [...daftarGuru].sort((a, b) => a.nama.localeCompare(b.nama));
+
   // --- LOGIKA PENCARIAN & FILTER ---
   const filteredJadwal = daftarJadwal.filter((j) => {
     const matchKelas = filterKelas === '' || j.classId === filterKelas;
@@ -124,16 +148,21 @@ const AdminJadwal = () => {
   };
 
   const mapelTersediaDiKelas = daftarMapelKeseluruhan.filter(m => m.classId === formData.classId);
+  const sortedMapelTersediaDiKelas = [...mapelTersediaDiKelas].sort((a, b) => a.nama.localeCompare(b.nama));
 
   const getLabel = (list, id, type = 'nama') => {
     const item = list.find(i => i.id === id);
     if (!item) return '-';
-    return type === 'kelas' ? item.nama_kelas : item.nama;
+    return type === 'kelas' ? `${item.nama_kelas} (${item.jenjang})` : item.nama;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (!formData.classId) {
+      pemicuNotif("Silakan pilih Kelas terlebih dahulu!", "error");
+      return;
+    }
     if (!formData.mapel || formData.mapel.length === 0) {
       pemicuNotif("Pilih minimal satu mata pelajaran.", "error");
       return;
@@ -144,28 +173,24 @@ const AdminJadwal = () => {
     const isInvalid = daftarJadwal.some((jadwal) => {
       if (editId && jadwal.id === editId) return false;
       
-      // Jika di Kelas yang sama dan Hari yang sama
       if (jadwal.classId === formData.classId && jadwal.hari === formData.hari) {
-        
-        // 1. CEK OVERLAP WAKTU
+        // CEK OVERLAP WAKTU
         const isOverlap = (formData.jamMulai < jadwal.jamSelesai) && (formData.jamSelesai > jadwal.jamMulai);
         if (isOverlap) {
           errorMessage = `Gagal! Terdapat jadwal kelas yang bentrok / tumpang tindih waktu di hari ${formData.hari}.`;
-          return true; // Hentikan pengecekan, kembalikan error
+          return true;
         }
 
-        // 2. CEK DUPLIKASI MAPEL (Mapel tidak boleh sama di hari yang sama)
-        // Format mapel lama (string) jadi array agar aman saat dicek
+        // CEK DUPLIKASI MAPEL
         const jadwalMapelArray = Array.isArray(jadwal.mapel) 
           ? jadwal.mapel 
           : (typeof jadwal.mapel === 'string' && jadwal.mapel.trim() !== '' ? [jadwal.mapel] : []);
           
-        // Cek apakah ada mapel di form yang sudah ada di jadwalMapelArray
         const duplicateMapels = formData.mapel.filter(m => jadwalMapelArray.includes(m));
         
         if (duplicateMapels.length > 0) {
           errorMessage = `Gagal! Mapel (${duplicateMapels.join(', ')}) sudah memiliki jadwal di hari ${formData.hari}.`;
-          return true; // Hentikan pengecekan, kembalikan error
+          return true;
         }
       }
       return false;
@@ -177,9 +202,13 @@ const AdminJadwal = () => {
     }
 
     try {
-      const dbRef = editId ? ref(db, `Jadwal/${editId}`) : push(ref(db, 'Jadwal'));
-      await set(dbRef, formData);
-      pemicuNotif(editId ? "Jadwal berhasil diperbarui!" : "Jadwal baru berhasil ditambahkan!", "success");
+      if (editId) {
+        await update(ref(db, `Jadwal/${editId}`), formData);
+        pemicuNotif("Jadwal berhasil diperbarui!", "success");
+      } else {
+        await push(ref(db, 'Jadwal'), formData);
+        pemicuNotif("Jadwal baru berhasil ditambahkan!", "success");
+      }
       closeModal();
     } catch (error) { 
       pemicuNotif("Gagal menyimpan data jadwal.", "error"); 
@@ -195,7 +224,6 @@ const AdminJadwal = () => {
     try {
       await remove(ref(db, `Jadwal/${confirmDelete.id}`));
       pemicuNotif("Jadwal berhasil dihapus.", "success");
-      
       if (currentJadwal.length === 1 && currentPage > 1) {
         setCurrentPage(currentPage - 1);
       }
@@ -207,13 +235,12 @@ const AdminJadwal = () => {
   };
 
   const openModal = (jadwal = null) => {
+    setIsFormKelasOpen(false); 
     if (jadwal) {
       setEditId(jadwal.id);
-      
       const mapelArray = Array.isArray(jadwal.mapel) 
         ? jadwal.mapel 
         : (typeof jadwal.mapel === 'string' && jadwal.mapel.trim() !== '' ? [jadwal.mapel] : []);
-
       setFormData({ ...jadwal, mapel: mapelArray });
     } else {
       setEditId(null);
@@ -227,20 +254,13 @@ const AdminJadwal = () => {
   const styles = {
     container: { padding: '20px', animation: 'fadeIn 0.3s ease' },
     card: { 
-      backgroundColor: colors.cardBg, 
-      border: `1px solid ${colors.border}`, 
-      borderRadius: '24px', 
-      overflow: 'hidden',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.02)'
+      backgroundColor: colors.cardBg, border: `1px solid ${colors.border}`, 
+      borderRadius: '24px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.02)'
     },
     tableHeader: {
       backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)',
-      borderBottom: `2px solid ${colors.border}`,
-      color: colors.textMuted,
-      fontSize: '11px',
-      fontWeight: '800',
-      textTransform: 'uppercase',
-      letterSpacing: '1px'
+      borderBottom: `2px solid ${colors.border}`, color: colors.textMuted,
+      fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px'
     },
     select: {
       width: '100%', padding: '12px 12px 12px 40px', borderRadius: '12px', border: `1px solid ${colors.border}`, 
@@ -253,20 +273,31 @@ const AdminJadwal = () => {
       color: colors.textPrimary, marginTop: '5px', boxSizing: 'border-box'
     },
     filterContainer: {
-      marginBottom: '25px', padding: '20px', 
-      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.015)' : '#f8fafc', 
+      marginBottom: '25px', padding: '20px', backgroundColor: isDarkMode ? 'rgba(255,255,255,0.015)' : '#f8fafc', 
       borderRadius: '16px', border: `1px solid ${colors.border}`,
       display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', alignItems: 'end'
     },
     labelFilter: {
       fontSize: '11px', fontWeight: '800', color: colors.textMuted, marginBottom: '8px', letterSpacing: '0.5px'
     },
+    // Diberi boxSizing border-box agar padding tidak merusak height
     filterDropdown: { 
       width: '100%', padding: '12px 36px 12px 38px', borderRadius: '12px', 
       border: `1px solid ${colors.border}`, backgroundColor: isDarkMode ? 'rgba(255,255,255,0.03)' : '#fff', 
       color: colors.textPrimary, fontSize: '13px', fontWeight: '600', appearance: 'none', cursor: 'pointer', outline: 'none',
-      boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
+      boxShadow: '0 2px 6px rgba(0,0,0,0.02)', boxSizing: 'border-box'
     },
+    customSelectMenu: {
+      position: 'absolute', top: '100%', left: 0, width: '100%', maxHeight: '250px', overflowY: 'auto', 
+      backgroundColor: isDarkMode ? '#1e293b' : '#fff', border: `1px solid ${colors.border}`, borderRadius: '12px',
+      zIndex: 100, marginTop: '6px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)'
+    },
+    customSelectItem: (isActive) => ({
+      padding: '12px 15px', cursor: 'pointer', fontSize: '13px', color: isActive ? colors.primary : colors.textPrimary,
+      backgroundColor: isActive ? (isDarkMode ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF') : 'transparent',
+      borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : '#f1f5f9'}`,
+      fontWeight: isActive ? '700' : '500', transition: 'background-color 0.2s ease'
+    }),
     infoBox: {
       padding: '15px', borderRadius: '12px', backgroundColor: colors.primary + '10',
       border: `1px dashed ${colors.primary}`, marginTop: '8px', display: 'flex', alignItems: 'center', gap: '10px'
@@ -275,12 +306,9 @@ const AdminJadwal = () => {
     pageBtn: { padding: '8px 12px', borderRadius: '8px', border: `1px solid ${colors.border}`, backgroundColor: colors.cardBg, color: colors.textPrimary, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', fontWeight: '600' },
     pageNumber: (active) => ({ padding: '8px 14px', borderRadius: '8px', border: 'none', backgroundColor: active ? colors.primary : 'transparent', color: active ? '#fff' : colors.textPrimary, cursor: 'pointer', fontSize: '13px', fontWeight: '600' }),
     toastNotification: (type) => ({
-      position: 'fixed', top: '20px', right: '20px',
-      backgroundColor: type === 'success' ? '#10B981' : '#EF4444',
-      color: '#fff', padding: '16px 24px', borderRadius: '12px',
-      boxShadow: '0 10px 25px rgba(0,0,0,0.15)', zIndex: 1100,
-      display: 'flex', alignItems: 'center', gap: '12px',
-      fontWeight: '600', fontSize: '14px', animation: 'slideIn 0.3s ease-out'
+      position: 'fixed', top: '20px', right: '20px', backgroundColor: type === 'success' ? '#10B981' : '#EF4444',
+      color: '#fff', padding: '16px 24px', borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', zIndex: 1100,
+      display: 'flex', alignItems: 'center', gap: '12px', fontWeight: '600', fontSize: '14px', animation: 'slideIn 0.3s ease-out'
     }),
     btnCancel: { padding: '12px', borderRadius: '10px', border: `1px solid ${colors.border}`, backgroundColor: 'transparent', color: colors.textPrimary, cursor: 'pointer', fontWeight: '700', flex: 1 },
     btnConfirmDelete: { padding: '12px', borderRadius: '10px', border: 'none', backgroundColor: '#EF4444', color: '#fff', cursor: 'pointer', fontWeight: '700', flex: 1 }
@@ -341,21 +369,55 @@ const AdminJadwal = () => {
 
         {/* CONTAINER FILTER */}
         <div style={styles.filterContainer}>
+          
+          {/* CUSTOM DROPDOWN FILTER KELAS */}
           <div>
             <div style={styles.labelFilter}>PILIH KELAS</div>
-            <div style={{ position: 'relative' }}>
-              <LayoutGrid size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
-              <select 
-                value={filterKelas}
-                onChange={(e) => setFilterKelas(e.target.value)}
-                style={styles.filterDropdown}
+            <div ref={filterKelasRef} style={{ position: 'relative' }}>
+              <LayoutGrid size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none', zIndex: 2 }} />
+              
+              <div 
+                onClick={() => setIsFilterKelasOpen(!isFilterKelasOpen)}
+                style={{ ...styles.filterDropdown, display: 'flex', alignItems: 'center' }}
               >
-                <option value="">Semua Kelas</option>
-                {daftarKelas.map((k) => (
-                  <option key={k.id} value={k.id}>{k.nama_kelas} ({k.jenjang})</option>
-                ))}
-              </select>
-              <ChevronDown size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
+                <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {filterKelas === '' ? 'Semua Kelas' : getLabel(daftarKelas, filterKelas, 'kelas')}
+                </span>
+              </div>
+              
+              {/* ChevronDown dibuat absolute di luar div container text, sama persis seperti <select> native */}
+              <ChevronDown 
+                size={16} 
+                style={{ 
+                  position: 'absolute', right: '12px', top: '50%',
+                  transform: `translateY(-50%) ${isFilterKelasOpen ? 'rotate(180deg)' : 'rotate(0deg)'}`,
+                  color: colors.textMuted, pointerEvents: 'none', transition: 'transform 0.2s' 
+                }} 
+              />
+
+              {isFilterKelasOpen && (
+                <div style={styles.customSelectMenu}>
+                  <div 
+                    onClick={() => { setFilterKelas(''); setIsFilterKelasOpen(false); }}
+                    style={styles.customSelectItem(filterKelas === '')}
+                    onMouseEnter={(e) => e.target.style.backgroundColor = isDarkMode ? 'rgba(255,255,255,0.05)' : '#f8fafc'}
+                    onMouseLeave={(e) => e.target.style.backgroundColor = filterKelas === '' ? (isDarkMode ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF') : 'transparent'}
+                  >
+                    Semua Kelas
+                  </div>
+                  {sortedDaftarKelas.map((k) => (
+                    <div 
+                      key={k.id}
+                      onClick={() => { setFilterKelas(k.id); setIsFilterKelasOpen(false); }}
+                      style={styles.customSelectItem(filterKelas === k.id)}
+                      onMouseEnter={(e) => e.target.style.backgroundColor = isDarkMode ? 'rgba(255,255,255,0.05)' : '#f8fafc'}
+                      onMouseLeave={(e) => e.target.style.backgroundColor = filterKelas === k.id ? (isDarkMode ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF') : 'transparent'}
+                    >
+                      {k.nama_kelas} ({k.jenjang})
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -387,7 +449,7 @@ const AdminJadwal = () => {
                 style={styles.filterDropdown}
               >
                 <option value="">Semua Guru</option>
-                {daftarGuru.map((guru) => (
+                {sortedDaftarGuru.map((guru) => (
                   <option key={guru.id} value={guru.id}>{guru.nama}</option>
                 ))}
               </select>
@@ -512,15 +574,58 @@ const AdminJadwal = () => {
             </div>
 
             <form onSubmit={handleSubmit}>
+              
+              {/* CUSTOM DROPDOWN FORM KELAS */}
               <div style={{ marginBottom: '20px' }}>
                 <label style={{ fontSize: '11px', fontWeight: '800', color: colors.textMuted, letterSpacing: '1px' }}>PILIH KELAS</label>
-                <div style={{ position: 'relative' }}>
-                  <LayoutGrid size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
-                  <select style={styles.select} value={formData.classId} onChange={(e) => handleKelasChange(e.target.value)} required>
-                    <option value="">-- Pilih Kelas --</option>
-                    {daftarKelas.map(k => <option key={k.id} value={k.id}>{k.nama_kelas} ({k.jenjang})</option>)}
-                  </select>
-                  <ChevronDown size={18} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, pointerEvents: 'none' }} />
+                <div ref={formKelasRef} style={{ position: 'relative' }}>
+                  <LayoutGrid size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: colors.textMuted, zIndex: 2, pointerEvents: 'none' }} />
+                  
+                  <div 
+                    onClick={() => setIsFormKelasOpen(!isFormKelasOpen)}
+                    style={{ ...styles.select, display: 'flex', alignItems: 'center' }}
+                  >
+                    <span style={{ 
+                      flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      color: formData.classId === '' ? colors.textMuted : colors.textPrimary 
+                    }}>
+                      {formData.classId === '' ? '-- Pilih Kelas --' : getLabel(daftarKelas, formData.classId, 'kelas')}
+                    </span>
+                  </div>
+                  
+                  {/* ChevronDown dibuat absolute di luar div container text, sama persis seperti <select> native */}
+                  <ChevronDown 
+                    size={18} 
+                    style={{ 
+                      position: 'absolute', right: '14px', top: '50%', 
+                      transform: `translateY(-50%) ${isFormKelasOpen ? 'rotate(180deg)' : 'rotate(0deg)'}`, 
+                      color: colors.textMuted, pointerEvents: 'none', transition: 'transform 0.2s' 
+                    }} 
+                  />
+
+                  {isFormKelasOpen && (
+                    <div style={styles.customSelectMenu}>
+                      <div 
+                        onClick={() => { handleKelasChange(''); setIsFormKelasOpen(false); }}
+                        style={styles.customSelectItem(formData.classId === '')}
+                        onMouseEnter={(e) => e.target.style.backgroundColor = isDarkMode ? 'rgba(255,255,255,0.05)' : '#f8fafc'}
+                        onMouseLeave={(e) => e.target.style.backgroundColor = formData.classId === '' ? (isDarkMode ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF') : 'transparent'}
+                      >
+                        -- Pilih Kelas --
+                      </div>
+                      {sortedDaftarKelas.map((k) => (
+                        <div 
+                          key={k.id}
+                          onClick={() => { handleKelasChange(k.id); setIsFormKelasOpen(false); }}
+                          style={styles.customSelectItem(formData.classId === k.id)}
+                          onMouseEnter={(e) => e.target.style.backgroundColor = isDarkMode ? 'rgba(255,255,255,0.05)' : '#f8fafc'}
+                          onMouseLeave={(e) => e.target.style.backgroundColor = formData.classId === k.id ? (isDarkMode ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF') : 'transparent'}
+                        >
+                          {k.nama_kelas} ({k.jenjang})
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -538,10 +643,10 @@ const AdminJadwal = () => {
                 }}>
                   {!formData.classId ? (
                     <span style={{ color: colors.textMuted, fontSize: '13px' }}>Pilih Kelas Terlebih Dahulu</span>
-                  ) : mapelTersediaDiKelas.length === 0 ? (
+                  ) : sortedMapelTersediaDiKelas.length === 0 ? (
                     <span style={{ color: colors.textMuted, fontSize: '13px' }}>Belum Ada Mapel di Kelas Ini</span>
                   ) : (
-                    mapelTersediaDiKelas.map(m => (
+                    sortedMapelTersediaDiKelas.map(m => (
                       <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px', color: colors.textPrimary }}>
                         <input
                           type="checkbox"
