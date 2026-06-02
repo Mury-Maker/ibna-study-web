@@ -1,11 +1,59 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Bell, Menu, Sun, Moon } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
-import { useNavigate } from 'react-router-dom'; // Import useNavigate
+import { useNavigate } from 'react-router-dom';
+import { db, auth } from '../../api/firebase'; 
+import { ref, onValue, get, update } from 'firebase/database';
 
 const Navbar = ({ onMenuClick, showHamburger }) => {
   const { isDarkMode, toggleTheme, colors } = useTheme();
-  const navigate = useNavigate(); // Inisialisasi navigate
+  const navigate = useNavigate();
+  const [hasUnread, setHasUnread] = useState(false);
+
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (user) {
+      // Catatan: Jika tabel notifikasi Admin berbeda (misal: "NotifikasiAdmin"), 
+      // silakan ubah path "Notifikasi/${user.uid}" di bawah ini.
+      const notifRef = ref(db, `Notifikasi/${user.uid}`);
+      const unsubscribe = onValue(notifRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          // Hanya mendeteksi data yang memiliki isRead === false
+          const unreadExists = Object.values(data).some(n => n.isRead === false);
+          setHasUnread(unreadExists);
+        } else {
+          setHasUnread(false);
+        }
+      });
+      return () => unsubscribe();
+    }
+  }, []);
+
+  const handleNotificationOpen = async () => {
+    // 1. Arahkan ke route notifikasi Admin
+    navigate('/Admin/Notifikasi');
+
+    // 2. Ubah status isRead di database agar titik merah hilang
+    const user = auth.currentUser;
+    if (user) {
+      const notifRef = ref(db, `Notifikasi/${user.uid}`);
+      const snapshot = await get(notifRef);
+      
+      if (snapshot.exists()) {
+        const updates = {};
+        snapshot.forEach((child) => {
+          if (child.val().isRead === false) {
+            updates[`${child.key}/isRead`] = true;
+          }
+        });
+        
+        if (Object.keys(updates).length > 0) {
+          update(notifRef, updates);
+        }
+      }
+    }
+  };
 
   const styles = {
     navbar: { 
@@ -61,14 +109,15 @@ const Navbar = ({ onMenuClick, showHamburger }) => {
             {isDarkMode ? <Sun size={20} color={colors.secondary} /> : <Moon size={20} color={colors.textMuted} />}
           </button>
 
-          {/* Tombol Notifikasi - Sekarang menuju ke halaman Notifikasi */}
+          {/* Tombol Notifikasi */}
           <button 
             style={styles.btn} 
-            onClick={() => navigate('/Admin/Notifikasi')} // Arahkan ke route notifikasi
+            onClick={handleNotificationOpen} 
             title="Lihat Notifikasi"
           >
             <Bell size={22} color={colors.textPrimary} />
-            <div style={styles.badge} />
+            {/* Titik merah hanya dirender jika hasUnread bernilai true */}
+            {hasUnread && <div style={styles.badge} />}
           </button>
         </div>
       </div>
